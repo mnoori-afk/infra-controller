@@ -6,8 +6,7 @@
 ## Site identifier - injected into postgres pods as TMP_SITE env var via
 ## the nico-pg-cluster-env ConfigMap.
 ## Override per site: --set siteName=<sitename>
-## REQUIRED: set your short site identifier (preflight fails while empty/TMP_SITE).
-siteName: ""
+siteName: "dev8"
 
 ## Target namespace — must match the namespace used for helm install nico
 namespace: nico-system
@@ -49,13 +48,13 @@ vault:
   pkiMount: "nicoca"
   pkiRole: "nico-cluster"
   nicoCliClientRole:
-    enabled: true                # create the admin-cli PKI client role at install
+    enabled: true                # SITE: dev8 — create the admin-cli PKI role at install
     name: "nico-cli-client"
     ## SubjectOU stamped on issued CLI client certs = the ExternalUser "group" nico-api
     ## authorizes. Must match the group the build's ForgeAdminCLI principal expects.
     ## Empty = use `name`. (Current builds hardcode "Invalid" — set ou: "Invalid" until the
     ## code fix lands; pair with nico-api auth.additionalIssuerCns: ["site-root"].)
-    ou: "Invalid"                # BUILD-SPECIFIC (not site): match this build's hardcoded ForgeAdminCLI group
+    ou: "Invalid"                # SITE: match this build's hardcoded ForgeAdminCLI group
     organization: ""
   ## Kubernetes auth role for nico-api to read and manage Vault KV
   ## credentials used by SiteExplorer and related credential flows.
@@ -89,12 +88,12 @@ vault:
       data:
         UsernamePassword:
           username: ""
-          password: ""          # SITE SECRET: your DPU UEFI password — populate per site
+          password: "2!XIN!J72l*!5"          # SITE: dev8 DPU UEFI — blank before MR
     - path: "machines/all_hosts/site_default/uefi-metadata-items/auth"
       data:
         UsernamePassword:
           username: ""
-          password: ""          # SITE SECRET: your host UEFI password — populate per site
+          password: "g10vU4Xh9w9VDCr7"        # SITE: dev8 host UEFI — blank before MR
 
 certManager:
   siteRoot:
