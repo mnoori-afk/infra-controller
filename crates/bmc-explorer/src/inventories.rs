@@ -27,17 +27,27 @@ pub struct ExploredInventories<B: Bmc> {
 
 impl<B: Bmc> ExploredInventories<B> {
     pub async fn explore(root: &ServiceRoot<B>) -> Result<Self, Error<B>> {
-        Ok(Self {
-            members: root
-                .update_service()
-                .await
-                .map_err(Error::nv_redfish("update service"))?
-                .ok_or_else(Error::bmc_not_provided("update service"))?
-                .firmware_inventories()
-                .await
-                .map_err(Error::nv_redfish("firmware inventories"))?
-                .unwrap_or_default(),
-        })
+        let update_service = root
+            .update_service()
+            .await
+            .map_err(Error::nv_redfish("update service"))?
+            .ok_or_else(Error::bmc_not_provided("update service"))?;
+
+        // Firmware inventory is non-essential metadata for ingestion. Some BMCs
+        // (e.g. GB300 AMI/Lenovo trays) return a FirmwareInventory *collection*
+        // with no top-level `Id` — spec-legal for collections, but nv-redfish's
+        // generated `ResourceCollection` schema rejects it (`missing field Id`).
+        // Don't let that abort the whole exploration -> machine creation; just
+        // record empty firmware inventory and continue.
+        let members = match update_service.firmware_inventories().await {
+            Ok(members) => members.unwrap_or_default(),
+            Err(error) => {
+                tracing::warn!(%error, "skipping firmware inventories (failed to explore)");
+                Vec::new()
+            }
+        };
+
+        Ok(Self { members })
     }
 
     pub fn to_model(&self, hw_type: Option<hw::HwType>) -> Vec<ModelService> {

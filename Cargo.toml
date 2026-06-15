@@ -26,7 +26,10 @@ authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/mnoori-afk/libredfish.git", branch = "gb300-lenovo-ami" }
+# TEMP (GB300 launchpad test4): reverted to upstream — discovery never touches the
+# libredfish BIOS/boot paths, so test4 (machine creation) doesn't need the fork. The
+# libredfish machine_setup_attrs/UEFI/set_bios fixes come back in once trays reach HostInit.
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.44.10" }
 librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.0.13" }
 ansi-to-html = "0.2.2"
 
