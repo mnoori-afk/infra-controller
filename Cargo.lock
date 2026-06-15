@@ -7469,7 +7469,7 @@ dependencies = [
 [[package]]
 name = "nv-redfish"
 version = "0.1.0"
-source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#e7eb749a4ff2bbd2801dd9071acf20f936965bdf"
+source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#b14ef14fa2dd9dfbfa2b32ce478d914ab9518e96"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7485,7 +7485,7 @@ dependencies = [
 [[package]]
 name = "nv-redfish-bmc-http"
 version = "0.1.0"
-source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#e7eb749a4ff2bbd2801dd9071acf20f936965bdf"
+source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#b14ef14fa2dd9dfbfa2b32ce478d914ab9518e96"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7507,7 +7507,7 @@ dependencies = [
 [[package]]
 name = "nv-redfish-core"
 version = "0.1.0"
-source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#e7eb749a4ff2bbd2801dd9071acf20f936965bdf"
+source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#b14ef14fa2dd9dfbfa2b32ce478d914ab9518e96"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7521,7 +7521,7 @@ dependencies = [
 [[package]]
 name = "nv-redfish-csdl-compiler"
 version = "0.1.0"
-source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#e7eb749a4ff2bbd2801dd9071acf20f936965bdf"
+source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#b14ef14fa2dd9dfbfa2b32ce478d914ab9518e96"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7538,7 +7538,7 @@ dependencies = [
 [[package]]
 name = "nv-redfish-schema"
 version = "0.1.0"
-source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#e7eb749a4ff2bbd2801dd9071acf20f936965bdf"
+source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-lenovo-chassis-quirk#b14ef14fa2dd9dfbfa2b32ce478d914ab9518e96"
 dependencies = [
  "glob",
 ]

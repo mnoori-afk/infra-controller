@@ -94,6 +94,20 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     mut root: Arc<ServiceRoot<B>>,
     config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
+    // GB300 AMI/Lenovo tray BMCs return HGX_* collection members (e.g.
+    // HGX_Baseboard_0 in Systems, HGX_BMC_0 in Managers, HGX_* in Chassis) as
+    // bare references under `$expand=.` — just `@odata.id`, with no `Id` or body.
+    // nv-redfish's strict schema rejects that (`missing field Id`), aborting the
+    // whole exploration -> 0 machines. Direct per-member GETs are complete, so
+    // disable server-side expand for these BMCs up front and let nv-redfish fetch
+    // each member individually. Must run before chassis/systems/managers
+    // exploration, since all three carry the offending HGX_* members. (The
+    // collection *wrappers* also omit top-level `Id`; that is patched separately
+    // by the LenovoAmi collection-Id quirk in nv-redfish.)
+    if root.vendor() == Some(Vendor::new("AMI")) {
+        root = root.as_ref().clone().restrict_expand().into();
+    }
+
     let chassis_explore_config = build_chassis_explore_config(&root);
     let explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
