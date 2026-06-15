@@ -338,6 +338,19 @@ impl HardwareInfo {
             .as_ref()
             .is_some_and(|dmi| dmi.sys_vendor == "NVIDIA" && dmi.product_name == "DGXH100")
     }
+
+    /// Is this a GB300 NVL tray host?
+    ///
+    /// The GB300 Lenovo tray BMC is an AMI ("AMI Redfish Server") BMC, but the
+    /// host itself reports a Lenovo sys_vendor via DMI once scout runs. We key
+    /// off the DMI product_name so we can tolerate the GB300/AMI BMC quirks
+    /// (e.g. UEFI-password setup) without relaxing behavior for real
+    /// Dell/Lenovo/Nvidia hosts.
+    pub fn is_gb300(&self) -> bool {
+        self.dmi_data
+            .as_ref()
+            .is_some_and(|dmi| dmi.product_name.contains("GB300"))
+    }
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]

@@ -716,6 +716,40 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         )
                         .await?
                     }
+                    // Defense-in-depth for the GB300/AMI tray BMC: rotation
+                    // PATCHes the account by username, but a libredfish/firmware
+                    // mismatch on which account id backs that username can still
+                    // 404 the PATCH. A 404 here means "the rotation endpoint we
+                    // tried isn't there", not "bad credentials" -- so instead of
+                    // hard-failing, fall back to the sitewide/retain path (same
+                    // as the Unauthorized case). If the already-rotated sitewide
+                    // creds work, discovery proceeds; otherwise that path raises
+                    // its own error.
+                    Err(EndpointExplorationError::RedfishError {
+                        response_code: Some(404),
+                        ..
+                    }) => {
+                        tracing::warn!(
+                            %bmc_ip_address,
+                            %bmc_mac_address,
+                            %vendor,
+                            "BMC password rotation PATCH returned 404; falling back to sitewide BMC credentials"
+                        );
+                        let bmc_credentials = self
+                            .try_sitewide_bmc_root_credentials(
+                                bmc_ip_address,
+                                bmc_mac_address,
+                                bmc_cred_data.username,
+                            )
+                            .await?;
+                        self.generate_exploration_report(
+                            bmc_ip_address,
+                            bmc_credentials,
+                            None,
+                            Some(vendor),
+                        )
+                        .await?
+                    }
                     Err(e) => return Err(e),
                 }
             }
