@@ -60,7 +60,11 @@ tracing-appender = "0.2.4"
 tracing-opentelemetry = "0.32.1"
 
 # NV-Redfish
-nv-redfish = { version = "0.10.0" }
+# TEMP (GB300 launchpad bring-up): point at the fork branch that adds the LenovoAmi
+# platform + missing-ChassisType/Name chassis quirks, so GB300 Lenovo tray BMCs ingest.
+# Upstream: revert to a crates.io version once NVIDIA/nv-redfish releases the fix.
+# See launchpad-bringup/GB300-NVREDFISH-FIX.md.
+nv-redfish = { git = "https://github.com/mnoori-afk/nv-redfish.git", branch = "gb300-lenovo-chassis-quirk" }
 
 ########
 # MARK: - Pinned packages that we can't upgrade due to conflicts or just bugs
