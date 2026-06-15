@@ -26,10 +26,13 @@ authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-# TEMP (GB300 launchpad test4): reverted to upstream — discovery never touches the
-# libredfish BIOS/boot paths, so test4 (machine creation) doesn't need the fork. The
-# libredfish machine_setup_attrs/UEFI/set_bios fixes come back in once trays reach HostInit.
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.44.10" }
+# TEMP (GB300 launchpad test8): libredfish HostInit fixes for GB300 Lenovo/AMI trays
+# (host-System selection so /Bios isn't 404, NWSK namespaced enums, clear_tpm value,
+# PXE-IPv4 boot-first fallback). The branch lives in the mnoori-afk/nv-redfish repo
+# (a different branch than the nv-redfish dep below — Cargo keys git sources by
+# (url, ref), so the two coexist). See launchpad-bringup/GB300-LIBREDFISH-FIX.md.
+# Upstream: revert to NVIDIA/libredfish once these land.
+libredfish = { git = "https://github.com/mnoori-afk/nv-redfish.git", branch = "gb300-lenovo-ami" }
 librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.0.13" }
 ansi-to-html = "0.2.2"
 
