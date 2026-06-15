@@ -860,11 +860,29 @@ impl EndpointExplorationReport {
         &mut self,
         force_predicted_host: bool,
     ) -> ModelResult<Option<&MachineId>> {
-        if let Some(serial_number) = self
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-        {
+        // GB300 Lenovo trays all report the SAME unpersonalized System CTO serial
+        // (e.g. "00001S7DJVCTO1WWJ70247ZZ") on every tray. Minting the predicted-host
+        // MachineId from that would collapse all 18 trays onto one id (only the first
+        // is created; the rest are rejected as "predicted host already exists"). The
+        // per-tray Chassis_0 serial IS unique and stable, so prefer it for these hosts.
+        // GB300 is recognized by the NVIDIA "GB300" HGX chassis present on the tray.
+        let gb300_chassis_serial = self
+            .chassis
+            .iter()
+            .any(|c| c.model.as_deref().is_some_and(|m| m.contains("GB300")))
+            .then(|| {
+                self.chassis
+                    .iter()
+                    .find(|c| c.id == "Chassis_0")
+                    .and_then(|c| c.serial_number.as_ref())
+            })
+            .flatten();
+
+        if let Some(serial_number) = gb300_chassis_serial.or_else(|| {
+            self.systems
+                .first()
+                .and_then(|system| system.serial_number.as_ref())
+        }) {
             let vendor = self
                 .systems
                 .first()
