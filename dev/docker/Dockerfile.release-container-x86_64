@@ -47,6 +47,7 @@ RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   echo "$(date): Finished cargo make build-release-container-services\n" && \
   mkdir -p /carbide/target/bin && \
   find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
+  strip /carbide/target/bin/* 2>/dev/null || true && \
   rm -rf /carbide/target/debug && \
   rm -rf /carbide/target/release && \
   echo "$(date): Deleted artifacts"

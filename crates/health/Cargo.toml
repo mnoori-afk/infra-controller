@@ -75,6 +75,9 @@ nv-redfish = { workspace = true, features = [
   "storages",
   "thermal",
   "update-service",
+  # GB300 Lenovo/AMI BMCs omit `Id` on every Redfish collection — enable the
+  # collection-Id patch so health exploration doesn't abort on "missing field Id".
+  "patch-collection-create",
   "resource-status",
 ] }
 rand = { workspace = true }

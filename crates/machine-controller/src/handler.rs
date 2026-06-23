@@ -5350,10 +5350,22 @@ async fn handle_host_uefi_setup(
                         e
                     );
 
+                    // The GB300 NVL tray is a Lenovo host fronted by an AMI
+                    // ("AMI Redfish Server") BMC. Its UEFI-password setup hits
+                    // AMI-specific quirks that don't represent a real bring-up
+                    // failure, so we must NOT treat them as fatal even though
+                    // the host classifies as Lenovo (via DMI) or Nvidia (via
+                    // the AMI Redfish vendor). Tolerate it like an unknown
+                    // vendor: log and continue so an operator can set the BIOS
+                    // password manually. Keyed on the GB300 DMI signature so
+                    // real Dell/Lenovo/Nvidia hosts keep the hard error.
+                    let is_gb300_ami = state.host_snapshot.is_gb300();
+
                     // This feature has only been tested thoroughly on Dells, Lenovos, and Vikings.
-                    if state.host_snapshot.bmc_vendor().is_dell()
-                        || state.host_snapshot.bmc_vendor().is_lenovo()
-                        || state.host_snapshot.bmc_vendor().is_nvidia()
+                    if !is_gb300_ami
+                        && (state.host_snapshot.bmc_vendor().is_dell()
+                            || state.host_snapshot.bmc_vendor().is_lenovo()
+                            || state.host_snapshot.bmc_vendor().is_nvidia())
                     {
                         return Err(StateHandlerError::GenericError(eyre::eyre!("{}", msg)));
                     }

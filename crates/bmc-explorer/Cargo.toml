@@ -46,6 +46,11 @@ nv-redfish = { workspace = true, features = [
   "pcie-devices",
   "power-supplies",
   "update-service",
+  # GB300 Lenovo/AMI BMCs omit `Id` on every Redfish collection (Systems,
+  # Managers, Chassis, ...). patch-collection-create compiles in the
+  # add_default_collection_id patch so the bug_missing_collection_id quirk
+  # actually fires; without it, /Systems aborts discovery with "missing field Id".
+  "patch-collection-create",
   "secure-boot",
   "oem-nvidia-bluefield",
   "oem-nvidia-baseboard",

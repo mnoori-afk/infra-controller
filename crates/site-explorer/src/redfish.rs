@@ -237,13 +237,21 @@ impl RedfishClient {
             // rotate via the same admin account, so handle them together.
             RedfishVendor::AMI | RedfishVendor::LenovoGB300 => {
                 /*
-                https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
+                Historically (DGX H100 Vikings) the admin account lived at a
+                fixed id, e.g.:
 
-                You should set the password after the first boot. The following curl command changes the password for the admin user.
+                https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
                 curl -k -u <bmc-user>:<password> --request PATCH 'https://<bmc-ip-address>/redfish/v1/AccountService/Accounts/2' --header 'If-Match: *'  --header 'Content-Type: application/json' --data-raw '{ "Password" : "<password>" }'
+
+                That assumption does NOT hold on the GB300 Lenovo tray BMC
+                (AMI "AMI Redfish Server" 1.21.1), whose accounts are id `1`
+                and `4` only -- so a PATCH to .../Accounts/2 404s and the whole
+                rotation hard-fails. Rotate by USERNAME instead (matching the
+                NvidiaGBx00 arm above), which lets libredfish resolve the
+                account id via /AccountService instead of guessing it.
                 */
                 client
-                    .change_password_by_id("2", new_password.as_str())
+                    .change_password(curr_user.as_str(), new_password.as_str())
                     .await
                     .map_err(|err| redact_password(err, new_password.as_str()))
                     .map_err(|err| redact_password(err, curr_password.as_str()))

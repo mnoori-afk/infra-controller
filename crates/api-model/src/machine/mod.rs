@@ -962,6 +962,13 @@ impl Machine {
         }
     }
 
+    /// Is this a GB300 NVL tray host? (Lenovo tray with an AMI BMC.)
+    pub fn is_gb300(&self) -> bool {
+        self.hardware_info
+            .as_ref()
+            .is_some_and(|hw| hw.is_gb300())
+    }
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub fn needs_agent_upgrade(&self) -> bool {
         self.dpu_agent_upgrade_requested
