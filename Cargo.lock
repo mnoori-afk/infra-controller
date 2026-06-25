@@ -6561,7 +6561,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.15#539221bcc0b16603e16bc2ee3d9632ce8576e330"
+source = "git+https://github.com/mnoori-afk/nv-redfish.git?branch=gb300-bootorder-and-pxe-fallback#49118c1004ea42507f3b77ed803bd84050909cd0"
 dependencies = [
  "chrono",
  "clap",
