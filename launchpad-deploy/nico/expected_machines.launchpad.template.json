@@ -1,0 +1,542 @@
+{
+  "_README": [
+    "Expected-machines seed for the 18 GB300 NVL72 compute trays. NICo refuses to ingest a host not",
+    "listed here (site-explorer/machine_creator.rs). Load AFTER NICo Core is up + DHCP relay is live:",
+    "  kubectl cp expected_machines.launchpad.json nico-system/<admincli-pod>:/tmp/em.json",
+    "  kubectl exec -n nico-system deploy/admincli -- /opt/carbide/carbide-admin-cli expected-machine replace-all --filename /tmp/em.json",
+    "  (verify: ac expected-machine list ;  ac machine list)",
+    "",
+    "BMC = Tray BMC (AMI MegaRAC). Confirmed by compute-trays.md: the Tray BMC is the iface set to DHCP",
+    "on 172.16.2.x that gets its IP from the control-plane (NICo). In NIC mode (DPU offload disabled) the",
+    "host BMC is the managed-host entry; the DPU BMC (BlueField OpenBMC, root) is NOT the ingestion BMC.",
+    "Cred admin/${BMC_PASSWORD} matches the Vault site-wide-root BMC cred already seeded.",
+    "",
+    "chassis_serial_number = serial-pending-tray-N \u2014 not in the docs; pull from each Tray BMC",
+    "via Redfish once reachable (GET /redfish/v1/Chassis/<id> .SerialNumber), or let site-explorer learn it.",
+    "RackIdentifier gb300-01 = single NVL72 rack (all 18 trays in one rack)."
+  ],
+  "expected_machines": [
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:f2",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000Y",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-1",
+        "description": "GB300 NVL72 compute tray 1 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-1"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b4:1c",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G001P",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-2",
+        "description": "GB300 NVL72 compute tray 2 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-2"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:e8",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000P",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-3",
+        "description": "GB300 NVL72 compute tray 3 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-3"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b4:1e",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G001S",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-4",
+        "description": "GB300 NVL72 compute tray 4 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-4"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:e4",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000K",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-5",
+        "description": "GB300 NVL72 compute tray 5 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-5"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:f4",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000Z",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-6",
+        "description": "GB300 NVL72 compute tray 6 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-6"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b4:12",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G001G",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-7",
+        "description": "GB300 NVL72 compute tray 7 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-7"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:ee",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000V",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-8",
+        "description": "GB300 NVL72 compute tray 8 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-8"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:e2",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000J",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-9",
+        "description": "GB300 NVL72 compute tray 9 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-9"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b4:66",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G0034",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-10",
+        "description": "GB300 NVL72 compute tray 10 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-10"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:e0",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000H",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-11",
+        "description": "GB300 NVL72 compute tray 11 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-11"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b4:a6",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G004A",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-12",
+        "description": "GB300 NVL72 compute tray 12 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-12"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:a0:a7:10",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C32413L1HF5C600SM",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-13",
+        "description": "GB300 NVL72 compute tray 13 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-13"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:e6",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000M",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-14",
+        "description": "GB300 NVL72 compute tray 14 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-14"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:ea",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G000S",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-15",
+        "description": "GB300 NVL72 compute tray 15 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-15"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b4:a4",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G0049",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-16",
+        "description": "GB300 NVL72 compute tray 16 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-16"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b3:f6",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G0010",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-17",
+        "description": "GB300 NVL72 compute tray 17 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-17"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    },
+    {
+      "bmc_mac_address": "18:3d:2d:9b:b4:14",
+      "bmc_username": "admin",
+      "bmc_password": "${BMC_PASSWORD}",
+      "chassis_serial_number": "8SSTA7C27481L1HF59G001H",
+      "dpu_mode": "NicMode",
+      "metadata": {
+        "name": "launchpad-compute-tray-18",
+        "description": "GB300 NVL72 compute tray 18 (Grace + BlueField-3, NIC mode)",
+        "labels": [
+          {
+            "key": "ServerName",
+            "value": "compute-tray-18"
+          },
+          {
+            "key": "RackIdentifier",
+            "value": "gb300-01"
+          },
+          {
+            "key": "site",
+            "value": "launchpad"
+          }
+        ]
+      },
+      "bmc_retain_credentials": true,
+      "host_lifecycle_profile": {
+        "disable_lockdown": true
+      }
+    }
+  ]
+}

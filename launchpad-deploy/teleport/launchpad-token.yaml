@@ -1,0 +1,25 @@
+# Teleport provision-token resource for the launchpad site controllers (TPM join).
+# Mirrors stardrive sites/<site>/teleport.yaml (e.g. sites/dev8/teleport.yaml).
+#
+# REGISTER on the nv-stg auth server (admin):
+#   tsh login --proxy=nv-stg-dgxc.teleport.sh
+#   tctl create -f launchpad-token.yaml        # upsert; safe to re-run after edits
+#
+# ek_public_hash values captured from `sudo tbot tpm identify` on each node (2026-06-13).
+# Token name MUST match --token used by `teleport node configure`: rg-forge-launchpad-nodes-tpm.
+kind: token
+version: v2
+metadata:
+   name: rg-forge-launchpad-nodes-tpm
+   labels:
+spec:
+   roles: [Node]
+   join_method: tpm
+   tpm:
+      allow:
+         - description: "launchpad-control-plane-1"
+           ek_public_hash: "0257b9155233ae69a755f19efd321c81e91de5b45acd1d9bfdc80959cca0c672"
+         - description: "launchpad-control-plane-2"
+           ek_public_hash: "c58849c98842222e2969c736c90abd54c7d687e1e841cc41a2f6cfeb4f4e6be5"
+         - description: "launchpad-control-plane-3"
+           ek_public_hash: "1e75bed1cff06ff051e6750478cc4fcedf47d21a65c50a975228dca10307d1c5"

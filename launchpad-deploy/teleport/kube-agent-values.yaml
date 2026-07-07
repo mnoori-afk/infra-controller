@@ -1,0 +1,49 @@
+# teleport-kube-agent Helm values — onboards the launchpad k8s cluster into Teleport (nv-stg)
+# so `tsh kube login rg-forge-launchpad` works. Merges stardrive's base
+# (apps/teleport-kube-agent/components/teleport-nonproduction-values/values.yaml) with the
+# per-site values (forged/envs/<site>/bootstrap/teleport/values.yaml). Deployed directly with
+# helm (substrate-only cluster, no ArgoCD).
+#
+# PREREQ: provision-token "rg-forge-launchpad" registered on nv-stg via
+# stardrive components/teleport/joincluster.sh (done). See RUNBOOK Phase 3b.
+#
+# Install/upgrade:
+#   helm upgrade --install teleport-kube-agent teleport/teleport-kube-agent \
+#     --version 18.7.6 --namespace teleport --create-namespace -f kube-agent-values.yaml
+
+roles: "kube"
+proxyAddr: "nv-stg-dgxc.teleport.sh:443"
+
+# teleportClusterName sets the AUDIENCE of the agent's projected ServiceAccount token.
+# MUST equal the Teleport cluster name (no port). Omitting it => "invalid audience claim (aud)".
+teleportClusterName: "nv-stg-dgxc.teleport.sh"
+
+# kubeClusterName = how this cluster appears in `tsh kube ls` (stardrive convention rg-forge-<site>).
+kubeClusterName: "rg-forge-launchpad"
+
+enterprise: true
+
+joinParams:
+  method: kubernetes
+  type: static_jwks
+  tokenName: "rg-forge-launchpad"     # MUST match the tctl token registered on nv-stg
+
+labels:
+  environment: non-prod
+  resource-group: forge
+
+highAvailability:
+  replicaCount: 1
+
+# Binds the access-forge-dgxc-prod-admin Teleport kube group to cluster-admin — this is the
+# group your tsh profile carries, so it grants you full kubectl access through Teleport.
+adminClusterRoleBinding:
+  create: true
+  name: access-forge-dgxc-prod-admin
+
+updater:
+  enabled: false
+log:
+  format: json
+podMonitor:
+  enabled: false        # set true only if you have a Prometheus operator + ServiceMonitor CRDs
