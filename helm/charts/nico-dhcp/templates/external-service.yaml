@@ -12,6 +12,9 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.externalService.type | default "LoadBalancer" }}
+  {{- if hasKey .Values.externalService "allocateLoadBalancerNodePorts" }}
+  allocateLoadBalancerNodePorts: {{ .Values.externalService.allocateLoadBalancerNodePorts }}
+  {{- end }}
   internalTrafficPolicy: Local
   selector:
     {{- include "nico-dhcp.selectorLabels" . | nindent 4 }}

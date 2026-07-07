@@ -1,0 +1,3 @@
+# The rendered expected_machines file contains the real BMC password in cleartext.
+# Regenerate it locally from the template with nico/render.sh — never commit it.
+nico/expected_machines.launchpad.json

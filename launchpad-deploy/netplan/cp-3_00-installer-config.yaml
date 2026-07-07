@@ -1,0 +1,24 @@
+# cp-3 (launchpad-control-plane-3) — site-controller OS mgmt, persistent static.
+# Mirrors stock subiquity structure (ens6* match -> bond0 active-backup), static on 172.16.2.0/24.
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens6:
+      dhcp4: false
+      match:
+        name: ens6*
+  bonds:
+    bond0:
+      dhcp4: false
+      interfaces: [ens6]
+      addresses: [172.16.2.13/24]
+      routes:
+        - to: default
+          via: 172.16.2.1
+      nameservers:
+        addresses: [172.16.0.1]
+      parameters:
+        mode: active-backup
+        mii-monitor-interval: 100
+        transmit-hash-policy: layer3+4

@@ -1,0 +1,94 @@
+# LaunchPad k8s cluster bootstrap (DSX deployctl, KUBESPRAY substrate).
+#
+# Substrate choice: kubespray (NOT NKE Tier0). Rationale — the launchpad site controllers use a
+# BONDED mgmt interface (bond0 over ens6f0np0+ens6f1np1); NKE Tier0's node_setup netplan-rekey +
+# OVS/OVN bring-up assume a single NIC (CDEVS-2906) and would not run on a bond. kubespray runs no
+# node_setup/OVS, needs only SSH+sudo+static-IP (which we have), keeps the bond, and matches the CNI
+# model NICo's helm-prereqs expects (MetalLB + bridge-netfilter). Substrate-only (bare K8s); NICo
+# deploys afterward via infra-controller-core/helm-prereqs.
+#
+# Node SSH path: laptop -> LaunchPad bastion (ProxyJump) -> node. Add to ~/.ssh/config:
+#   Host launchpad-bastion
+#       HostName 72.25.67.5
+#       User nvidia
+#       IdentityFile ~/.ssh/id_rsa
+# Node user `nvidia` must have passwordless sudo (kubespray become). Verify:
+#   ssh -J launchpad-bastion nvidia@172.16.2.11 'sudo -n true && echo OK'
+#
+# OPERATOR PREREQS:
+#   uv sync && uv run ansible-galaxy collection install -r requirements.yml
+#   export DSX_INVENTORY_ROOT="$PWD/inventory"
+#   export ANSIBLE_VAULT_PASSWORD_FILE=~/.ansible/vault/dsx-stg-pass   # if group_vars/dsx-stg has vault strings
+---
+apiVersion: dsx.nvidia.com/v1
+kind: Cluster
+metadata:
+  name: launchpad
+  description: "GB300 NVL72 LaunchPad site controllers — kubespray bare-K8s (3 control-plane nodes, bonded mgmt, bastion ProxyJump). Substrate-only; NICo via helm-prereqs."
+
+spec:
+  blueprint: ./blueprint.yaml
+  site: launchpad
+  dsxEnv: dsx-stg
+
+  connectivity:
+    mode: proxy
+    kubeconfigPath: "${HOME}/.kube/launchpad.config"
+    targetKubeconfigContext: "launchpad"
+    sshJumpHost: "launchpad-bastion"          # ~/.ssh/config alias (cluster_access kubeconfig tunnel)
+    sshJumpHostUser: "nvidia"
+
+  components:
+    # Substrate mutex (ADR-0005): kubespray on, NKE pair off.
+    nkeNodeSetup:
+      enabled: false
+    nkeKubernetesProvision:
+      enabled: false
+
+    kubesprayKubernetesProvision:
+      parameters:
+        nodes:
+          - name: launchpad-control-plane-1   # == OS hostname == Teleport nodename == k8s node name
+            HostName: 172.16.2.11
+            User: nvidia
+            Port: 22
+            ProxyJump: launchpad-bastion       # matches jumpHost.name below
+            StrictHostKeyChecking: "no"
+            UserKnownHostsFile: "/dev/null"
+            role: control_plane
+          - name: launchpad-control-plane-2
+            HostName: 172.16.2.12
+            User: nvidia
+            Port: 22
+            ProxyJump: launchpad-bastion
+            StrictHostKeyChecking: "no"
+            UserKnownHostsFile: "/dev/null"
+            role: control_plane
+          - name: launchpad-control-plane-3
+            HostName: 172.16.2.13
+            User: nvidia
+            Port: 22
+            ProxyJump: launchpad-bastion
+            StrictHostKeyChecking: "no"
+            UserKnownHostsFile: "/dev/null"
+            role: control_plane
+        jumpHost:
+          name: launchpad-bastion
+          HostName: 72.25.67.5
+          User: nvidia
+          Port: 22
+          Compression: "yes"
+          PubkeyAcceptedKeyTypes: "+ssh-rsa-cert-v01@openssh.com"
+          StrictHostKeyChecking: "no"
+          UserKnownHostsFile: "/dev/null"
+
+    # Substrate-only: bring up bare K8s and stop. NICo deploys afterward via helm-prereqs,
+    # NOT the DSX ArgoCD app stack. Disable the app-stack + vault components (as dev8 does).
+    vaultJwtKey:
+      enabled: false
+    bootstrapSecrets:
+      enabled: false
+    argocd:
+      enabled: false
+    argocdApps:
+      enabled: false

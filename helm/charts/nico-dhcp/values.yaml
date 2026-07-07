@@ -227,3 +227,9 @@ externalService:
   enabled: false
   type: LoadBalancer
   annotations: {}
+  ## Optional. Omit to keep the Kubernetes default (true = a NodePort is allocated per port).
+  ## Set to false on bare-metal/MetalLB-L2 sites: MetalLB serves the VIP directly and never uses
+  ## the NodePort, and for this connectionless UDP/67 service the extra NodePort adds needless
+  ## IPVS/conntrack state on every node (implicated in DHCP return-path breakage). Only rendered
+  ## when explicitly set (hasKey guard in external-service.yaml), so existing installs are unaffected.
+  # allocateLoadBalancerNodePorts: false

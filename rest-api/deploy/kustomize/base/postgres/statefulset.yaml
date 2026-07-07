@@ -42,13 +42,17 @@ spec:
               mountPath: /var/lib/postgresql/data
             - name: init-scripts
               mountPath: /docker-entrypoint-initdb.d
+          # This single postgres hosts the Temporal (temporal + temporal_visibility) DBs plus nico + keycloak.
+          # 512Mi was too small: Temporal ReadHistoryBranch persistence reads exceeded deadline -> "pq:
+          # canceling statement due to user request" -> workflows stalled (site wouldn't pair, activities
+          # StartToClose-timed out). Bumped to 4Gi/2cpu on launchpad 2026-07-02 to fix it.
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "250m"
+              memory: "2Gi"
+              cpu: "1"
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "4Gi"
+              cpu: "2"
           readinessProbe:
             exec:
               command:
