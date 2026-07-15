@@ -1,5 +1,10 @@
 # Launchpad REST + Flow: v1.6.0 → v2.0.x upgrade plan
 
+> ✅ STATUS: COMPLETED 2026-07-08 — REST + Flow are on `v2.1.0-pr-14-g0d5452b9a`, site
+> `8c894583-bea4-445d-a5bd-46ee0e3cb3fb` registered (Registered/isOnline), agent↔Flow enabled
+> (`FLOW_GRPC_ENABLED=true`). Kept for historical reference.
+
+
 **Goal:** move the whole REST + Flow stack off v1.6.0 to the v2.0 line so the site-agent gets the
 metrics-idempotency fix (no crashloop when Flow gRPC is enabled), then complete the agent↔Flow link.
 
@@ -21,7 +26,8 @@ Helm releases / chart paths:
 - `flow` (rev 4) → `helm/charts/nico-flow`
 
 ### ★ MUST re-assert site-agent identity on upgrade (set outside helm during #23)
-`helm upgrade` on the site-agent would revert its CM to the install-time `CLUSTER_ID=7f91b08b`. Re-assert the
+`helm upgrade` on the site-agent would revert its CM to the install-time `CLUSTER_ID=7f91b08b` (the
+now-orphaned UUID — historical; the live/registered site is `8c894583-…`). Re-assert the
 live values via --set: `envConfig.CLUSTER_ID=8c894583-bea4-445d-a5bd-46ee0e3cb3fb`,
 `envConfig.TEMPORAL_SUBSCRIBE_NAMESPACE=8c894583-bea4-445d-a5bd-46ee0e3cb3fb`,
 `envConfig.TEMPORAL_SUBSCRIBE_QUEUE=site`, `envConfig.FLOW_GRPC_ENABLED=false` (keep false until Phase 4).
@@ -32,6 +38,7 @@ The `site-registration` secret (site-uuid+OTP) was hand-created — confirm it i
 2. ❓ **Flow mTLS**: the `release/v2.0` site-agent chart still mounts only `/etc/core-grpc` (no spiffe mount),
    and Flow rejected the agent with `tls: certificate required`. The bump makes this **retry gracefully instead
    of crashing**, but `capabilities.flow` won't flip until the cert is resolved. Treat as a Phase-4 follow-up.
+   (it was solved — see [FLOW-FIXES.md](../FLOW-FIXES.md).)
 
 ## Pre-flight (do first — no mutations)
 - [ ] Confirm tag `T` (above).
@@ -86,4 +93,5 @@ TAG=T ./launchpad-deploy/nico/deploy-flow.sh
 ## Risks
 - Brief api(v2.0)↔agent(v1.6.0) version skew between Phase 1 and 2 — keep the window short.
 - DB migration is the highest-risk step — backups are mandatory.
-- Flow mTLS (Phase 4) may need real cert work; not guaranteed by the image bump alone.
+- Flow mTLS (Phase 4) may need real cert work; not guaranteed by the image bump alone. (it was solved
+  — see [FLOW-FIXES.md](../FLOW-FIXES.md).)

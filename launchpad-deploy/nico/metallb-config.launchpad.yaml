@@ -3,8 +3,9 @@
 # managed-host lease pool is 172.16.2.50–.250 (separated via [networks.admin] reserve_first=50).
 #
 # VIP map (must match values/nico-core.yaml):
+#   otel-receiver.forge .30 | grafana.forge .31 (observability; .32-.39 spare)
 #   nico-api .40 (external) | nico-dhcp .41 | unbound .42 | nico-pxe .43
-#   nico-ntp .44/.45/.46    | nico-dns .47/.48 | nico-ssh-console .49   (internal)
+#   nico-ntp .44/.45/.46    | nico-dns .47/.48 | nico-ssh-console-rs .49   (internal)
 ---
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -14,6 +15,7 @@ metadata:
 spec:
   addresses:
     - 172.16.2.41-172.16.2.49   # dhcp, unbound, pxe, ntp x3, dns x2, ssh-console (unquoted so preflight regex matches)
+    - 172.16.2.30-172.16.2.39   # observability: otel-receiver.forge .30, grafana.forge .31 (rest spare). Separate range so it never overlaps external .40.
 ---
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool

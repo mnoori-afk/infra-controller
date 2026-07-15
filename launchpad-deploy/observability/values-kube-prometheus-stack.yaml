@@ -1,0 +1,73 @@
+# kube-prometheus-stack — Prometheus + Grafana for launchpad. Release name MUST be `obs` (the Loki +
+# gateway ServiceMonitors are labelled release: obs). Grafana gets Loki + Prometheus datasources.
+# No Panoptes/remote-write; local only.
+fullnameOverride: obs
+# The prometheus-operator CRDs (monitoring.coreos.com) ALREADY exist on this cluster — installed earlier
+# by helmfile (helm-prereqs). Let the chart use them instead of applying its own copies, which hits a
+# server-side-apply field-ownership conflict on the shared CRDs. We only install the operator + workloads.
+crds:
+  enabled: false
+prometheusOperator:
+  enabled: true          # launchpad has no shared operator (forged disables it because it runs one centrally)
+prometheus:
+  prometheusSpec:
+    # select ServiceMonitors/PodMonitors/Rules cluster-wide, not just those with helm-values labels
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    retention: 15d
+    externalLabels:
+      forge_site: launchpad     # tags every metric with the site (matches the logs' forge_site label)
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path-persistent
+          resources:
+            requests:
+              storage: 50Gi
+    # scrape the DPU metrics the gateway re-exports on :9999
+    additionalScrapeConfigs:
+      - job_name: otel-collector-gateway
+        static_configs:
+          - targets: ["otel-collector-gateway.otel.svc.cluster.local:9999"]
+alertmanager:
+  enabled: false          # not needed for the log/metric-collection goal; enable later if you want alerts
+kubeEtcd:
+  enabled: false          # this kubespray binds etcd metrics to 127.0.0.1:2381 -> the scrape target would
+                          # always be DOWN. controller-manager/scheduler bind 0.0.0.0 so those stay UP.
+grafana:
+  # No auth: anonymous users land straight in as Admin, login form disabled. Internal-only site reached
+  # by VIP/tunnel — matches Loki (auth_enabled:false) and the collectors (no auth).
+  grafana.ini:
+    auth:
+      disable_login_form: true
+    auth.anonymous:
+      enabled: true
+      org_role: Admin
+    auth.basic:
+      enabled: false
+    users:
+      allow_sign_up: false
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.2.31"   # grafana.forge (add to unbound + MetalLB pool)
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.loki.svc.cluster.local:3100
+      jsonData:
+        httpHeaderName1: X-Scope-OrgID
+      secureJsonData:
+        httpHeaderValue1: forge      # auth_enabled=false ignores this, but set it for the future
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: monitoring
+# Optional: import the forge-dashboards subset (forge/site-overview, forge/networking, serial-console,
+# ssh-console-rs, hardware-health, kubernetes) as ConfigMaps labelled grafana_dashboard: "1" in ns
+# monitoring — the sidecar auto-loads them. Skip Panoptes-specific dashboards.

@@ -154,7 +154,7 @@ fences off the SC statics (.11–.13) and the MetalLB VIPs (.30–.49) from the 
 | nico-pxe | 172.16.2.43 | internal | carbide-pxe.forge / carbide-static-pxe.forge |
 | nico-ntp 0/1/2 | 172.16.2.44/.45/.46 | internal | carbide-ntp.forge |
 | nico-dns 0/1 | 172.16.2.47/.48 | internal | (authoritative site DNS) |
-| nico-ssh-console | 172.16.2.49 | internal | — |
+| nico-ssh-console-rs | 172.16.2.49 | internal | — (cert-auth console — see [SSH-CONSOLE.md](SSH-CONSOLE.md)) |
 
 ---
 
@@ -183,22 +183,23 @@ Status: **applied** (kube-proxy configmap patched, daemonset restarted).
 ## 4. DHCP for managed hosts — relay is MANDATORY
 
 NICo's DHCP (Kea + nico hook) **rejects any packet whose `giaddr` is 0.0.0.0** (non-relayed) and
-**selects the network segment by matching the relay's `giaddr` to `[networks.<seg>].gateway`**. So a
-flat broadcast from a tray will never get an answer — a **DHCP relay (ip-helper)** must forward tray
-DHCP to the nico-dhcp VIP.
+**selects the network segment by matching the relay's `giaddr` to a segment by subnet membership**
+(`ip <<= prefix`), so any address in `172.16.2.0/24` works. So a flat broadcast from a tray will never
+get an answer — a **DHCP relay** must forward tray DHCP to the nico-dhcp VIP. Here that relay is a
+self-hosted `isc-dhcp-relay` on cp-1 (giaddr `172.16.2.11`).
 
 ```
 GB300 tray BMC/DPU (172.16.2.0/24, VLAN 200)
       │  DHCPDISCOVER (broadcast)
       ▼
-Core switch VLAN-200 SVI (172.16.2.1)   ── ip dhcp relay / helper-address ──►  nico-dhcp VIP 172.16.2.41
+Self-hosted isc-dhcp-relay on cp-1 (bond0)  ── unicast, giaddr 172.16.2.11 ──►  nico-dhcp VIP 172.16.2.41
       ▲                                                                              │
       └────────────── DHCPOFFER (IP from .50–.250 + next-server/bootfile/DNS/NTP) ◄──┘
 ```
-- The relay sets `giaddr = 172.16.2.1`, which equals `[networks.admin].gateway` → NICo picks the admin
-  segment and leases from `.50–.250`.
-- **Action item:** networking configures this relay on the core switch (the SC nodes are *not* the
-  relay; NICo's nico-dhcp is the server). Coworker confirmed "a relay can go on the core switch."
+- We self-host the relay as **`isc-dhcp-relay` on `launchpad-control-plane-1`** (`cp-1`, on bond0, same
+  VLAN-200 broadcast domain as the tray BMCs). It sets `giaddr = 172.16.2.11` (cp-1's bond0 IP), which
+  is in `172.16.2.0/24` → NICo matches the mgmt underlay segment and leases from `.50–.250`. It forwards
+  to the nico-dhcp VIP `172.16.2.41`. Full detail: [DHCP-RELAY.md](DHCP-RELAY.md).
 
 ---
 
@@ -223,21 +224,24 @@ Upstream forwarder: the site resolver (assume `172.16.0.1`; confirm).
 
 | Physical | siteConfig | Notes |
 |---|---|---|
-| 172.16.2.0/24 (VLAN 200) | `[networks.admin]` prefix=172.16.2.0/24 gw=172.16.2.1 reserve_first=50 | managed-host DHCP + discovery |
+| 172.16.2.0/24 (VLAN 200) | `[networks.launchpad-mgmt]` type=underlay prefix=172.16.2.0/24 gw=172.16.2.1 reserve_first=50 | managed-host DHCP + discovery (trays DHCP here) |
+| (placeholder) | `[networks.admin]` prefix=172.16.4.0/25 gw=172.16.4.1 | placeholder — admin never allocates in NIC mode |
 | 172.16.3.0/24 | `[networks.<ns>] type=underlay` | north-south data |
-| 172.16.0/2/3/5.x | `deny_prefixes` | tenant instances must not reach mgmt/underlay/storage |
-| (tenant overlays) | `[pools.vni]`, `lo-ip` | **dormant** — DPU offload disabled (NIC mode), no VXLAN/HBN |
+| — | `deny_prefixes = []` | emptied on launchpad; do NOT deny mgmt underlay 172.16.2.0/24 (holds the VIPs) |
+| tenant fabric / EVPN | `site_fabric_prefixes=172.16.4.128/25`, `datacenter_asn=32325`, `[pools.fnn-asn]`, `site_global_vpc_vni=245002` | siteConfig now carries a full FNN/EVPN config |
 | nico-dhcp VIP | `dhcp_servers = ["172.16.2.41"]` | |
 
-DPU offload is **disabled**: trays come up as flat L2 on the admin/underlay nets; the overlay/VNI/
-loopback machinery is configured but not exercised. Enabling DPU-mode later requires BGP peering with
-the core switch + a loopback prefix (the 2nd inband /24).
+The siteConfig now carries a full **FNN/EVPN** config — `datacenter_asn=32325`,
+`site_fabric_prefixes=172.16.4.128/25`, `[pools.fnn-asn]`, `site_global_vpc_vni=245002` — so the
+EVPN/DPU-mode route-target machinery is now **present** in siteConfig (no longer a bare NIC-mode/no-VXLAN
+placeholder). Whether DPU offload is actively exercised still depends on per-host dpu-mode + upstream
+BGP peering.
 
 ---
 
 ## 7. End-to-end packet/identity flow (managed-host ingestion)
 1. Tray powers on → BMC/DPU broadcasts DHCP on VLAN 200.
-2. Core-switch relay → nico-dhcp VIP (`.41`); NICo matches giaddr `.2.1` → admin segment → leases `.50–.250` + next-server (nico-pxe `.43`) + DNS (unbound `.42`) + NTP (`.44–.46`).
+2. cp-1 `isc-dhcp-relay` → nico-dhcp VIP (`.41`); NICo matches giaddr `172.16.2.11` → launchpad-mgmt underlay → leases `.50–.250` + next-server (nico-pxe `.43`) + DNS (unbound `.42`) + NTP (`.44–.46`).
 3. iPXE (**aarch64**) fetches scout/carbide + BFB from nico-pxe.
 4. site-explorer probes the tray BMC via Redfish (creds from Vault) → creates the managed host (must be in `expected_machines`).
 5. State machine `HostInit → BomValidating → Ready` (DPU-discovery skipped in NIC mode).
@@ -246,7 +250,7 @@ the core switch + a loopback prefix (the 2nd inband /24).
 
 ## 8. Status / open networking items
 - ✅ SC statics (.11–.13), MetalLB carve (.30–.49), strictARP applied.
-- ⬜ Core-switch **DHCP relay → 172.16.2.41** (networking team).
+- ✅ **DHCP relay → 172.16.2.41**: self-hosted `isc-dhcp-relay` on cp-1 (giaddr `172.16.2.11`). See [DHCP-RELAY.md](DHCP-RELAY.md).
 - ⬜ Confirm unbound upstream resolver IP.
 - ⬜ 2nd inband /24 CIDR (only for future DPU-mode/overlay + lo-ip).
 - ⬜ Verify NVLink NVOS-port count (1 vs 2) + power-shelf count (6 vs 8) for DHCP-pool sizing.
