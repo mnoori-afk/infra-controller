@@ -1,0 +1,14 @@
+# Power Shelves
+
+{% set power_shelves = gb300nvl72_inventory | selectattr('system', 'equalto', gb300nvl72_rack) | selectattr('category', 'equalto', 'power_shelf') | list %}
+{% if power_shelves %}
+Power shelf management interfaces are on the 172.16.2.x management network and are reached from the control-plane nodes.
+
+| Server | Component | MAC Address | Switch | Port | User / Password | Notes |
+|---|---|---|---|---|---|---|
+{% for item in power_shelves %}
+| {{ item.server }} | {{ item.component }} | <code>{{ item.mac | replace(':', '&#58;') }}</code> | {{ item.switch }} | {{ item.port }} | {{ item.user_password }} | {{ item.notes }} |
+{% endfor %}
+{% else %}
+No power shelf control interfaces are defined for the selected system.
+{% endif %}

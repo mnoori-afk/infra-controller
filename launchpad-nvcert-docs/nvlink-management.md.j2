@@ -1,0 +1,34 @@
+# NVLink Management
+
+> **Note**
+>
+> NVLink BMC and management interfaces are on the 172.16.2.x management network and are reached from the control-plane nodes. The platform documentation captures the MAC address, connected switch, port, and default credentials where those details are available.
+
+## Documentation Links
+
+NVLink switches use NVIDIA NVOS, not Cumulus Linux. Use NVOS documentation for NVLink switch software and operational commands.
+
+| Area | Documentation | Use It For |
+|---|---|---|
+| NVOS user manual | [NVIDIA NVOS User Manual for NVLink Switches](https://docs.nvidia.com/networking/display/nvidianvosusermanualfornvlinkswitchesv25024282) | NVLink switch software management, NVUE, system management, user interfaces, and operational command guidance. |
+| NVLink switching | [NVLink Switching](https://docs.nvidia.com/networking/display/nvidianvosusermanualfornvlinkswitchesv25024282/nvlink-switching) | NVLink interface, fabric, and cluster-management command references. |
+
+> **Note**
+>
+> Do not use the Cumulus Linux switch commands from the Ethernet switch page on NVLink switches. NVLink switch management should follow the NVOS documentation.
+
+## BMC Interfaces
+
+| Server | MAC Address | Switch | Port | User / Password | Notes |
+|---|---|---|---|---|---|
+{% for item in gb300nvl72_inventory | selectattr('system', 'equalto', gb300nvl72_rack) | selectattr('category', 'equalto', 'nvlink_bmc') %}
+| {{ item.server }} | <code>{{ item.mac | replace(':', '&#58;') }}</code> | {{ item.switch }} | {{ item.port }} | {{ item.user_password }} | {{ item.notes }} |
+{% endfor %}
+
+## Management Interfaces
+
+| Server | MAC Address | Switch | Port | User / Password | Notes |
+|---|---|---|---|---|---|
+{% for item in gb300nvl72_inventory | selectattr('system', 'equalto', gb300nvl72_rack) | selectattr('category', 'equalto', 'nvlink_mgmt') %}
+| {{ item.server }} | <code>{{ item.mac | replace(':', '&#58;') }}</code> | {{ item.switch }} | {{ item.port }} | {{ item.user_password }} | {{ item.notes }} |
+{% endfor %}

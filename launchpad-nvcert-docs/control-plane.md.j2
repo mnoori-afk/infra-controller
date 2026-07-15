@@ -1,0 +1,27 @@
+# Control Plane
+
+Control-plane servers use BMCs for out-of-band management, 1G links for management access, CX7 links for storage, and CX7 links for north-south routing. Use the control-plane nodes as the primary place to set up and operate the environment after they are available.
+
+For OS installation and network setup:
+
+- Use north-south interfaces for inbound and outbound access.
+- Use storage interfaces for WEKA access on the storage network.
+- Follow the per-interface notes for subnet, gateway, and DNS details. BMC access, 1G management, storage, and north-south data links are distinct networks.
+- Open BMC web interfaces with `https://<IP>`.
+
+{% set ns = namespace(current='') %}
+{% for item in gb300nvl72_inventory | selectattr('system', 'equalto', gb300nvl72_rack) | selectattr('category', 'equalto', 'control_plane') %}
+{% set item_key = item.system ~ '/' ~ item.server %}
+{% if item_key != ns.current %}
+{% if ns.current != '' %}
+
+{% endif %}
+## {{ item.server }}
+
+| Component | MAC Address | Switch | Port | Usage | Access / IP | User / Password | Notes |
+|---|---|---|---|---|---|---|---|
+{% set ns.current = item_key %}
+{% endif %}
+{% set access_target = ('https://' ~ item.ip) if item.usage == 'BMC' and item.ip else item.ip %}
+| {{ item.component }} | <code>{{ item.mac | replace(':', '&#58;') }}</code> | {{ item.switch }} | {{ item.port }} | {{ item.usage }} | {{ access_target }} | {{ item.user_password }} | {{ item.notes }} |
+{% endfor %}

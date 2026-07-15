@@ -1,0 +1,28 @@
+# cp-1 (nvcert-control-plane-1) — site-controller OS mgmt, persistent static.
+# MACs: ens6f0np0=6c:83:75:25:64:02  ens6f1np1=6c:83:75:25:64:03
+# Mirrors the stock subiquity structure (ens6* match -> bond0 active-backup),
+# switched from DHCP to a static address on 172.16.2.0/24 (VLAN 200).
+# DHCP relay runs on the mgmt switches (ip-helper -> VIP .41). cp-1 is only the
+# FALLBACK relay host (isc-dhcp-relay, giaddr .11) if the switch relay is unavailable.
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens6:
+      dhcp4: false
+      match:
+        name: ens6*
+  bonds:
+    bond0:
+      dhcp4: false
+      interfaces: [ens6]
+      addresses: [172.16.2.11/24]
+      routes:
+        - to: default
+          via: 172.16.2.1
+      nameservers:
+        addresses: [172.16.0.1]
+      parameters:
+        mode: active-backup
+        mii-monitor-interval: 100
+        transmit-hash-policy: layer3+4

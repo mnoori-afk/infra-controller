@@ -1,0 +1,35 @@
+# metallb-config for nvcert — copy to helm-prereqs/values/metallb-config.yaml before setup.sh.
+# L2 mode (lab is static-routed, no BGP). VIPs carved from 172.16.2.30–.49; the nico-dhcp
+# managed-host lease pool is 172.16.2.50–.250 (separated via [networks.nvcert-mgmt] reserve_first=50).
+#
+# VIP map (must match values/nico-core.nvcert.yaml):
+#   nico-api .40 (external) | nico-dhcp .41 | unbound .42 | nico-pxe .43
+#   nico-ntp .44/.45/.46    | nico-dns .47/.48 | nico-ssh-console-rs .49   (internal)
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: vip-pool-internal
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.16.2.41-172.16.2.49   # dhcp, unbound, pxe, ntp x3, dns x2, ssh-console (unquoted so preflight regex matches)
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: vip-pool-external
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.16.2.40-172.16.2.40   # nico-api (client-facing API VIP)
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - vip-pool-internal
+    - vip-pool-external

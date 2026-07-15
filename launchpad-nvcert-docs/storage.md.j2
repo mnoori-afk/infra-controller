@@ -1,0 +1,63 @@
+# WEKA Storage
+
+WEKA provides the shared high-performance storage layer for the environment. Linux clients can mount storage through either the native WEKA filesystem client or NFS v4. Control-plane nodes and compute trays reach storage through their storage interfaces.
+
+Use the storage interfaces on the control-plane nodes and compute trays when connecting to WEKA. Treat this as a storage data path, separate from north-south host routing, management addresses, BMC addresses, and east-west compute fabric traffic.
+
+## Storage Access
+
+| Method | Mount Target | Access Path |
+|---|---|---|
+| Native WEKA client | `{{ gb300nvl72_weka_client_backends | join(',') }}/{{ gb300nvl72_weka_client_filesystem }}` | Use the storage interface created on the client host. |
+| NFS v4 | `{{ gb300nvl72_weka_nfs_hostname }}:{{ gb300nvl72_weka_nfs_export }}` (`{{ gb300nvl72_weka_nfs_range }}`) | Use the storage interface path. |
+
+## Native WEKA Client
+
+Install the WEKA client from the storage service, create the mount point, and specify the storage interface or bond you created with `-o net=...`. Use the core list for the type of system you are mounting from.
+
+```bash
+curl http://{{ gb300nvl72_weka_nfs_hostname }}:14000/dist/v1/install | WEKA_CGROUPS_MODE=force_v2 sh
+
+mkdir -p {{ gb300nvl72_weka_client_mount_path }}
+```
+
+### Compute Trays
+
+```bash
+mount -t wekafs \
+  -o core={{ gb300nvl72_weka_client_compute_tray_cores | join(',') }} \
+  -o net={{ gb300nvl72_weka_client_net_interface }} \
+  {{ gb300nvl72_weka_client_backends | join(',') }}/{{ gb300nvl72_weka_client_filesystem }} \
+  {{ gb300nvl72_weka_client_mount_path }}
+```
+
+### Control-Plane Nodes
+
+```bash
+mount -t wekafs \
+  -o core={{ gb300nvl72_weka_client_control_plane_cores | join(',') }} \
+  -o net={{ gb300nvl72_weka_client_net_interface }} \
+  {{ gb300nvl72_weka_client_backends | join(',') }}/{{ gb300nvl72_weka_client_filesystem }} \
+  {{ gb300nvl72_weka_client_mount_path }}
+```
+
+In the examples above, `{{ gb300nvl72_weka_client_net_interface }}` is the storage interface. Replace it with the interface or bond name created on your client if your configuration uses a different name.
+
+## NFS v4
+
+NFS mounts should use the `{{ gb300nvl72_weka_nfs_hostname }}` host record, which resolves to the storage service IPs in `{{ gb300nvl72_weka_nfs_range }}`. Do not mount through WEKA management or BMC addresses.
+
+```bash
+mkdir -p {{ gb300nvl72_weka_nfs_mount_path }}
+
+mount -t nfs {{ gb300nvl72_weka_nfs_hostname }}:{{ gb300nvl72_weka_nfs_export }} {{ gb300nvl72_weka_nfs_mount_path }}
+```
+
+## Client Software
+
+Use only the native WEKA client or the NFS v4 mount path documented above. SMB access is not enabled for this environment.
+
+| Need | Link |
+|---|---|
+| Download WEKA installation packages | [get.weka.io package workflow](https://docs.weka.io/planning-and-installation/bare-metal/obtaining-the-weka-install-file) |
+| Add Linux WEKA clients | [Add clients to a bare-metal cluster](https://docs.weka.io/planning-and-installation/bare-metal/adding-clients-bare-metal) |

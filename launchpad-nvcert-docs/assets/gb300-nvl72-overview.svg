@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">GB300 NVL72 overview</title>
+  <desc id="desc">Conceptual overview diagram showing GB300 NVL72 as a system-scale AI platform with Blackwell Ultra GPUs, Grace CPUs, NVLink, networking, memory, and Mission Control.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#27313f"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" x2="1">
+      <stop offset="0%" stop-color="#76b900"/>
+      <stop offset="100%" stop-color="#b7ef3a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.24"/>
+    </filter>
+    <style>
+      .label { font-family: Arial, Helvetica, sans-serif; fill: #f8fafc; }
+      .muted { fill: #cbd5e1; }
+      .dark { fill: #0f172a; font-family: Arial, Helvetica, sans-serif; }
+      .card { fill: #1f2937; stroke: #3b4656; stroke-width: 2; }
+      .green-card { fill: url(#green); }
+      .line { stroke: #76b900; stroke-width: 4; stroke-linecap: round; opacity: 0.9; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="620" rx="0" fill="url(#bg)"/>
+
+  <text x="72" y="82" class="label" font-size="42" font-weight="700">NVIDIA GB300 NVL72</text>
+  <text x="72" y="120" class="label muted" font-size="22">System-scale AI platform for reasoning, inference, training, and multimodal generation</text>
+
+  <g filter="url(#shadow)">
+    <rect x="72" y="165" width="306" height="365" rx="14" class="card"/>
+    <rect x="105" y="205" width="240" height="46" rx="10" class="green-card"/>
+    <text x="225" y="235" text-anchor="middle" class="dark" font-size="21" font-weight="700">72 Blackwell Ultra GPUs</text>
+    <rect x="105" y="274" width="240" height="46" rx="10" fill="#334155"/>
+    <text x="225" y="304" text-anchor="middle" class="label" font-size="21" font-weight="700">36 Grace CPUs</text>
+    <rect x="105" y="343" width="240" height="46" rx="10" fill="#334155"/>
+    <text x="225" y="373" text-anchor="middle" class="label" font-size="21" font-weight="700">37 TB Fast Memory</text>
+    <rect x="105" y="412" width="240" height="46" rx="10" fill="#334155"/>
+    <text x="225" y="442" text-anchor="middle" class="label" font-size="21" font-weight="700">Liquid-Cooled System</text>
+    <text x="225" y="493" text-anchor="middle" class="label muted" font-size="18">A complete platform, not just</text>
+    <text x="225" y="518" text-anchor="middle" class="label muted" font-size="18">a collection of servers</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="447" y="165" width="306" height="365" rx="14" class="card"/>
+    <text x="600" y="218" text-anchor="middle" class="label" font-size="30" font-weight="700">NVLink Domain</text>
+    <circle cx="535" cy="302" r="50" fill="#76b900"/>
+    <circle cx="665" cy="302" r="50" fill="#76b900"/>
+    <circle cx="600" cy="410" r="50" fill="#76b900"/>
+    <line x1="572" y1="302" x2="628" y2="302" class="line" stroke="#d9f99d"/>
+    <line x1="558" y1="343" x2="582" y2="371" class="line" stroke="#d9f99d"/>
+    <line x1="642" y1="343" x2="618" y2="371" class="line" stroke="#d9f99d"/>
+    <text x="535" y="309" text-anchor="middle" class="dark" font-size="18" font-weight="700">GPU</text>
+    <text x="665" y="309" text-anchor="middle" class="dark" font-size="18" font-weight="700">GPU</text>
+    <text x="600" y="417" text-anchor="middle" class="dark" font-size="18" font-weight="700">GPU</text>
+    <text x="600" y="494" text-anchor="middle" class="label muted" font-size="18">130 TB/s scale-up bandwidth</text>
+    <text x="600" y="519" text-anchor="middle" class="label muted" font-size="18">for large model communication</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="822" y="165" width="306" height="365" rx="14" class="card"/>
+    <text x="975" y="218" text-anchor="middle" class="label" font-size="30" font-weight="700">AI Factory</text>
+    <rect x="865" y="265" width="220" height="54" rx="10" fill="#334155"/>
+    <text x="975" y="299" text-anchor="middle" class="label" font-size="20" font-weight="700">ConnectX-8 SuperNICs</text>
+    <rect x="865" y="346" width="220" height="54" rx="10" fill="#334155"/>
+    <text x="975" y="380" text-anchor="middle" class="label" font-size="20" font-weight="700">InfiniBand / Ethernet</text>
+    <rect x="865" y="427" width="220" height="54" rx="10" class="green-card"/>
+    <text x="975" y="461" text-anchor="middle" class="dark" font-size="20" font-weight="700">Mission Control</text>
+    <text x="975" y="519" text-anchor="middle" class="label muted" font-size="18">Operate, observe, and automate</text>
+  </g>
+
+  <line x1="378" y1="347" x2="447" y2="347" class="line"/>
+  <line x1="753" y1="347" x2="822" y2="347" class="line"/>
+
+  <g>
+    <rect x="72" y="558" width="1056" height="1" fill="#475569"/>
+    <text x="72" y="590" class="label muted" font-size="18">Conceptual orientation graphic for the GB300 NVL72 environment.</text>
+  </g>
+</svg>

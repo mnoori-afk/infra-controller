@@ -1,0 +1,440 @@
+## nico-core values for nvcert — pass to setup.sh via --core-values.
+## Networking is fully filled for nvcert (172.16.2.0/24, VIPs .40–.49, reserve_first=50).
+## global.image.repository/tag come from NICO_IMAGE_REGISTRY/NICO_CORE_IMAGE_TAG via --set (leave blank).
+## FILL_ME = you must supply before deploy. See nico-core.fills.md and NETWORKING.md.
+##
+## FNN/EVPN WARNING: all [fnn.*] ASN/VNI values below are FILL_ME placeholders seeded with
+## launchpad values for shape reference. Get the real values from the network team (Brian/Jasmeer)
+## before running setup.sh — deploying with wrong ASNs will prevent DPU EVPN sessions from forming.
+
+global:
+  image:
+    repository: ""    # set via --set (NICO_IMAGE_REGISTRY)/nvmetal-carbide
+    tag: ""           # set via --set (NICO_CORE_IMAGE_TAG)
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: imagepullsecret
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: nico.local
+
+nico-api:
+  # FILL_ME: set to the actual nico-api DNS hostname for this site.
+  # This goes into the TLS certificate SAN — agents/DPUs use it to verify the server cert.
+  # Pattern from launchpad: "api-launchpad.nvidialaunchpad.internal". Ask the team what they
+  # are calling this cluster (the Teleport kube context name is usually a good hint).
+  hostname: "FILL_ME.nvidialaunchpad.internal"
+  auth:
+    additionalIssuerCns:
+      - "site-root"
+  externalService:
+    enabled: true
+    # nico-api .40 is a dedicated VIP (vip-pool-external, NOT shared). ETP=Local: on-subnet
+    # clients (DPU mgmt net 172.16.2.x) can reach it directly; the kube-proxy MASQUERADE path
+    # is not needed here. Mirrors the reconciled launchpad state (2026-07-02).
+    externalTrafficPolicy: Local
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.2.40"
+  certificate:
+    extraDnsNames:
+      - "FILL_ME.nvidialaunchpad.internal"   # FILL_ME: must match hostname above
+      - "carbide-api.forge"
+      - "nico-api.forge"
+      - "carbide-api.forge-system.svc.cluster.local"
+  siteConfig:
+    enabled: true
+    nicoApiSiteConfig: |
+      # FILL_ME: sitename = the NICo site name (e.g. "rg-forge-<sitename>"). Used in REST registration
+      # and nico-api logs. Ask the team for the agreed name for this GB300 cluster.
+      sitename = "FILL_ME"
+      # FILL_ME: initial_domain_name = base DNS domain. Affects unbound localData and TLS SANs.
+      # Pattern from launchpad: "launchpad.nvidialaunchpad.internal"
+      initial_domain_name = "FILL_ME.nvidialaunchpad.internal"
+      attestation_enabled = true
+      max_concurrent_machine_updates = 20
+
+      dhcp_servers = ["172.16.2.41"]
+
+      route_servers = []
+      enable_route_servers = false
+
+      # This is a work-around to a Cumulus route-leaking limitation and will result in all VPCs
+      # getting the same VNI. Route-targets still use the normal dynamically-allocated VNI for
+      # route-targets, so this only limits the number of isolated VRFs per DPU to one if used.
+      # Value must match the VNI used for the VRF on the Cumulus TOR.
+      # FILL_ME: get from network team (Brian/Jasmeer) — site-specific EVPN config.
+      # Seeded with launchpad value (245002) so nico-api parses without error; update before enabling DPU mode.
+      site_global_vpc_vni = 245002  # FILL_ME — confirm with network team (launchpad=245002)
+
+      # 172.16.3.0/24 (N-S underlay) is the tenant fabric -> site_fabric_prefixes only.
+      # deny_prefixes must NOT overlap site_fabric_prefixes (nico-api hard-validates this).
+      # FILL_ME: get from network team — site-specific fabric prefix. Seeded with launchpad value.
+      site_fabric_prefixes = ["172.16.4.128/25"]  # FILL_ME — confirm with network team (launchpad=172.16.4.128/25)
+      deny_prefixes = []
+
+      # --- FNN / EVPN admin-VPC route targets (provided by the network team). In DPU mode the
+      # tray host boots through the DPU on the admin/overlay net and must reach mgmt-network
+      # services (nico-pxe 172.16.2.43). NICo programs these route-target imports/exports onto
+      # the DPU VRFs so the admin VPC's routes are announced on the DPU<->core-switch L2VPN/EVPN
+      # session. datacenter_asn must be top-level.
+      #
+      # FILL_ME: All ASN/VNI values below are seeded with launchpad values so nico-api starts.
+      # Get the real nvcert values from the network team (Brian/Jasmeer) before enabling DPU mode.
+      # With route_servers=[] and enable_route_servers=false these are dormant but must be parseable.
+      datacenter_asn = 32325  # FILL_ME — confirm with network team (launchpad=32325)
+
+      [fnn.admin_vpc]
+      enabled = true
+      vpc_vni = 60300  # FILL_ME — confirm with network team (launchpad=60300)
+
+      [fnn.routing_profiles.INTERNAL]
+      internal = true
+      route_target_imports = [
+        { asn = 32325, vni = 10 },      # FILL_ME: import the default route
+        { asn = 32326, vni = 245001 },  # FILL_ME
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+      route_targets_on_exports = [
+        { asn = 32325, vni = 50200 },   # FILL_ME: common internal route tag
+        { asn = 32326, vni = 245001 },  # FILL_ME
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+
+      [fnn.routing_profiles.EXTERNAL]
+      internal = false
+      route_target_imports = [
+        { asn = 32325, vni = 10 },      # FILL_ME: import the default route
+        { asn = 32326, vni = 245001 },  # FILL_ME
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+      route_targets_on_exports = [
+        { asn = 32325, vni = 50500 },   # FILL_ME: common external route tag
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+
+      [fnn.routing_profiles.MAINTENANCE]
+      internal = true
+      route_target_imports = [
+        { asn = 32325, vni = 10 },      # FILL_ME: import the default route
+        { asn = 32326, vni = 245001 },  # FILL_ME
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+      route_targets_on_exports = [
+        { asn = 32325, vni = 50300 },   # FILL_ME: common breakfix route tag
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+
+      [fnn.admin_vpc.routing_profile]
+      internal = true
+      route_target_imports = [
+        { asn = 32325, vni = 10 },      # FILL_ME: import the default route
+        { asn = 32326, vni = 245001 },  # FILL_ME
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+      route_targets_on_exports = [
+        { asn = 32325, vni = 50400 },   # FILL_ME: common admin route tag
+        { asn = 32325, vni = 50200 },   # FILL_ME: common internal route tag
+        { asn = 32327, vni = 245001 },  # FILL_ME
+        { asn = 32328, vni = 245001 },  # FILL_ME
+        { asn = 32329, vni = 245001 },  # FILL_ME
+      ]
+
+      [site_explorer]
+      enabled = true
+      run_interval = "30s"
+      allow_zero_dpu_hosts = false
+      # Create switch + power-shelf objects during exploration so the 9 NVIDIA switches and 6 LiteOn
+      # power shelves get ingested (rack config, Jira "Setup rack and component manager configs").
+      create_switches = true
+      create_power_shelves = true
+      # GB300 trays expose TWO Redfish Systems (HGX_Baseboard_0 = no BIOS, System_0 = Lenovo host w/ BIOS).
+      # nv-redfish client has GB300-aware handling (bmc-explorer/hw/lenovo_gb300.rs) that selects
+      # the host System. REQUIRED for GB300 ingestion.
+      explore_mode = "nv-redfish"
+
+      [machine_validation_config]
+      enabled = true
+      # Disable the long DCGM diagnostic (forge_DcgmFullLong): it FAILS on the GB300 trays and
+      # blocks Ready (per Krish 2026-07-03). test_selection_mode defaults to "Default".
+      tests = [
+        { id = "forge_DcgmFullLong", enable = false },
+      ]
+
+      [bom_validation]
+      enabled = true
+      ignore_unassigned_machines = true
+
+      # lo-ip: DPU loopbacks — dormant (DPU offload off / route_servers off),
+      # but the pool must exist. Non-routed range to avoid overlap with site nets.
+      [pools.lo-ip]
+      type = "ipv4"
+      ranges = [{ start = "172.16.3.16", end = "172.16.3.216" }]
+
+      [pools.vlan-id]
+      type = "integer"
+      ranges = [{ start = "2000", end = "3000" }]
+
+      [pools.vni]
+      type = "integer"
+      ranges = [{ start = "1024500", end = "1024800" }]
+
+      [pools.vpc-vni]
+      type = "integer"
+      ranges = [{ start = "60200", end = "60300" }]
+
+      # Per-DPU BGP ASN pool for FNN. REQUIRED once [fnn] is enabled: each DPU is allocated a
+      # unique ASN from here. Without this pool, update_dpu_asns logs "FNN ASN pool not configured"
+      # and every DPU's GetManagedHostNetworkConfig fails. Range = private-ASN block; the core
+      # switch must accept these ASNs on the DPU EVPN session — CONFIRM RANGE WITH NETWORK TEAM.
+      # NOTE: nico-api caps any resource pool at 250000 entries — keep this small (~18 DPUs).
+      [pools.fnn-asn]
+      type = "integer"
+      ranges = [{ start = "4268000000", end = "4268000099" }]  # FILL_ME: confirm with network team
+
+      # Placeholder admin segment. nico-api REQUIRES a [networks.admin] block with non-empty
+      # prefix/gateway (else it panics at startup). NIC-mode hosts use HostInband/underlay NOT admin,
+      # so nothing is ever allocated here. Small unused prefix to avoid overlap with real nets.
+      [networks.admin]
+      type = "admin"
+      prefix = "172.16.4.0/25"
+      gateway = "172.16.4.1"
+      mtu = 1500
+      reserve_first = 5
+
+      # Managed-host BMC + host-OOB discovery network (VLAN 200, 172.16.2.0/24). MUST be type=underlay:
+      # site-explorer ONLY scans underlay segments; it explicitly skips admin/tenant segments.
+      # The DHCP relay runs on the mgmt switches (ip-helper -> VIP .41); its giaddr (a switch SVI in
+      # 172.16.2.0/24 — launchpad sees .4/.5) matches this segment by subnet membership (ip <<= prefix),
+      # so ANY 172.16.2.x giaddr works — no exact-gateway requirement.
+      # reserve_first=50 fences node statics (.11-.23) + MetalLB VIPs (.40-.49) off the lease pool (.50-.250).
+      [networks.nvcert-mgmt]
+      type = "underlay"
+      prefix = "172.16.2.0/24"
+      gateway = "172.16.2.1"
+      mtu = 1500
+      reserve_first = 50
+
+      [ib_config]
+      enabled = false
+
+      [firmware_global]
+      autoupdate = false
+      no_reset_retries = true
+
+      [machine_state_controller]
+      failure_retry_time = "90m"
+
+      # --- Rack + Component-Manager config (NVL72_GB300 — same BOM as launchpad).
+      # NOTE: profile name MUST be NVL72_GB300 (not NVL72_300 etc.) else the power_shelf_backend="rms"
+      # startup validator rejects the profile and nico-api won't boot.
+      [rack_profiles.NVL72_GB300]
+      product_family = "gb300"
+      rack_hardware_topology = "gb300_nvl72r1_c2g4_topology"
+
+      [rack_profiles.NVL72_GB300.rack_capabilities.compute]
+      name = "GB300"
+      vendor = "Lenovo"
+      count = 18
+
+      [rack_profiles.NVL72_GB300.rack_capabilities.switch]
+      vendor = "NVIDIA"
+      count = 9
+
+      [rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
+      vendor = "LiteOn"
+      count = 6
+
+      [component_manager]
+      compute_tray_backend = "rms"
+      nv_switch_backend = "rms"
+      power_shelf_backend = "rms"
+      nv_switch_use_state_controller = true
+      power_shelf_use_state_controller = true
+      compute_tray_use_state_controller = true
+
+      [rms]
+      api_url = "https://rms-api-server.rack-manager.svc.cluster.local:8801"
+      enforce_tls = true
+      # RMS mTLS: vault-nico-issuer cert (secret nico-api-certificate) mounted at /var/run/secrets/spiffe.io.
+      # RMS's client-CA (rms-api-server --tls-ca) is the same vault-nico CA -> mTLS succeeds.
+      root_ca_path = "/var/run/secrets/spiffe.io/ca.crt"
+      client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+      client_key = "/var/run/secrets/spiffe.io/tls.key"
+
+nico-dhcp:
+  externalService:
+    enabled: true
+    # Remove the DHCP LoadBalancer NodePort. MetalLB-L2 serves the .41 VIP directly and never uses
+    # the NodePort; the extra NodePort added needless IPVS/conntrack state implicated in the DHCP
+    # OFFER return-path break. Matches prod (rg-forge-ytl nico-dhcp-external also = false).
+    allocateLoadBalancerNodePorts: false
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.2.41"
+  # DHCP relay is on the mgmt switches (ip-helper -> .41), so kea can schedule on ANY node.
+  # ONLY IF you fall back to a node-hosted isc-dhcp-relay (launchpad-deploy/DHCP-RELAY.md §4),
+  # pin kea off that node (same-node relay->VIP goes deaf) — see README "DHCP relay" section.
+  config:
+    kea:
+      hookParameters:
+        nameservers: "172.16.2.42"                        # unbound VIP (serves .forge)
+        ntpServer: "172.16.2.44,172.16.2.45,172.16.2.46"  # nico-ntp VIPs
+        provisioningServer: "172.16.2.43"                  # nico-pxe VIP
+
+nico-dns:
+  externalService:
+    enabled: true
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "172.16.2.47"
+      - metallb.universe.tf/loadBalancerIPs: "172.16.2.48"
+
+nico-pxe:
+  externalService:
+    enabled: true
+    # NOTE: do NOT set externalTrafficPolicy: Cluster here. nico-pxe-external (8080) and
+    # nico-pxe-external-80 (80) SHARE the .43 VIP via metallb allow-shared-ip=nico-pxe.
+    # Flipping ETP on a shared-IP service triggers a MetalLB shared-IP reallocation that gets
+    # stuck and leaves the 8080 VIP <pending> -> hosts can't reach pxe on 8080. Keep ETP=Local.
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.2.43"
+  # aarch64 ONLY (Grace host + BlueField-3 DPU). No x86_64 (no x86 managed hosts).
+  # Bumped to pr-503 to match Core (v2.0.0-pr-503-g49a48a69d). The forge-scout AND forge-dpu
+  # agents ship from THIS image's /apt repo — a Core bump alone does NOT carry agent fixes.
+  # NOTE: bumping this rolls the DPU agent AND replaces the stock ipxe.efi -> any ipxe override
+  # must be RE-COPIED after this deploy (pod restarts, emptyDir repopulated).
+  # COPY PATH = /forge-boot-artifacts/blobs/internal (PR #2813).
+  bootArtifactContainers:
+    - name: boot-artifacts-aarch64
+      image: "nvcr.io/0837451325059433/carbide-dev/boot-artifacts-aarch64:v2.0.0-pr-503-g49a48a69d"
+      command: ["sh", "-c", "cp -r /aarch64 /apt /forge-boot-artifacts/blobs/internal"]
+  certificate:
+    extraDnsNames:
+      - "carbide-pxe.forge"
+      - "nico-pxe.forge"
+      - "carbide-static-pxe.forge"
+      - "carbide-pxe.forge-system.svc.cluster.local"
+
+nico-ssh-console-rs:
+  # GOTCHA: this subchart reads its OWN .Values.imagePullSecrets, NOT global.imagePullSecrets —
+  # without this it does an anonymous pull and 403s.
+  imagePullSecrets:
+    - name: imagepullsecret
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.2.49"
+  # SSH-cert admin console auth. The chart exposes NO per-key value — the ONLY override is a full
+  # config.toml via configFiles.config.
+  #   openssh_certificate_ca_fingerprints = central NVIDIA Forge SSH user-CA (prod.vault.nvidia.com,
+  #     mount sshca-usercert/issue/ngc) that nvinit/nvcert signs admin certs with. Fleet-wide.
+  #   admin_certificate_role = role in the cert Key ID `roles=` list that grants direct-console
+  #     admin. Live nvcert certs carry swngc-forge-admins.
+  configFiles:
+    config: |
+      listen_address = "[::]:22"
+      metrics_address = "[::]:9009"
+      nico_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+      carbide_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+      nico_root_ca_path = "/var/run/secrets/spiffe.io/ca.crt"
+      forge_root_ca_path = "/var/run/secrets/spiffe.io/ca.crt"
+      client_cert_path = "/var/run/secrets/spiffe.io/tls.crt"
+      client_key_path = "/var/run/secrets/spiffe.io/tls.key"
+      host_key = "/etc/ssh/ssh_host_ed25519_key"
+      dpus = true
+      insecure = false
+      openssh_certificate_ca_fingerprints = ["SHA256:sPKzOUJwvkR3aCFf2oCyHnc+JoMtFcow2UxcEz+cXo4"]
+      admin_certificate_role = "swngc-forge-admins"
+      insecure_ipmi_ciphers = false
+      force_deactivate_conflicting_ipmi_sol_sessions = false
+      api_poll_interval = "180s"
+      console_logging_enabled = true
+      console_logs_path = "/var/log/consoles"
+
+nico-ntp:
+  externalService:
+    enabled: true
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "172.16.2.44"
+      - metallb.universe.tf/loadBalancerIPs: "172.16.2.45"
+      - metallb.universe.tf/loadBalancerIPs: "172.16.2.46"
+
+nico-dsx-exchange-consumer:
+  enabled: false
+
+unbound:
+  enabled: true
+  # PUBLIC stock image (matches validated ytl-shard-2 deploy): no NGC token needed,
+  # exporter disabled (avoids the nvforge remote-control dependency).
+  image:
+    repository: docker.io/alpinelinux/unbound
+    tag: latest
+  exporter:
+    enabled: false
+  command:
+    - /bin/sh
+    - -c
+  args:
+    - |
+      cat > /tmp/unbound.conf <<EOF
+      server:
+        do-daemonize: no
+        verbosity: 1
+        interface: 0.0.0.0
+        interface: ::0
+        access-control: 0.0.0.0/0 allow
+        chroot: ""
+        username: ""
+        directory: "/etc/unbound"
+        so-rcvbuf: 0
+        so-sndbuf: 0
+      include: "/etc/unbound/local.conf.d/*.conf"
+      EOF
+      exec unbound -d -c /tmp/unbound.conf
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.2.42"
+  localConfig:
+    forwarders.conf: |
+      forward-zone:
+          name: .
+          forward-addr: 172.16.0.1     # site resolver — FILL_ME confirm with network team
+  localData:
+    - name: carbide-api.forge
+      addresses: ["172.16.2.40"]
+    - name: nico-api.forge
+      addresses: ["172.16.2.40"]
+    - name: carbide-pxe.forge
+      addresses: ["172.16.2.43"]
+    - name: nico-pxe.forge
+      addresses: ["172.16.2.43"]
+    - name: carbide-static-pxe.forge
+      addresses: ["172.16.2.43"]
+    - name: carbide-ntp.forge
+      addresses: ["172.16.2.44", "172.16.2.45", "172.16.2.46"]
+    - name: nico-ntp.forge
+      addresses: ["172.16.2.44", "172.16.2.45", "172.16.2.46"]
+    - name: unbound.forge
+      addresses: ["172.16.2.42"]

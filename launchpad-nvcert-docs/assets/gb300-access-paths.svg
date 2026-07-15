@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">GB300 NVL72 access path overview</title>
+  <desc id="desc">Diagram showing access from the LaunchPad bastion to core switches and control-plane BMCs, then from control-plane nodes to compute trays, NVLink switches, and WEKA storage.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="16" markerHeight="12" refX="15" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L0,12 L16,6 z" fill="#76b900"/>
+    </marker>
+    <style>
+      .bg { fill: #101418; }
+      .card { fill: #1b2229; stroke: #35424d; stroke-width: 2; rx: 10; }
+      .accent { fill: #76b900; }
+      .title { fill: #ffffff; font: 700 24px Arial, sans-serif; }
+      .label { fill: #d9dee2; font: 600 18px Arial, sans-serif; }
+      .body { fill: #b9c2ca; font: 15px Arial, sans-serif; }
+      .small { fill: #92a0aa; font: 13px Arial, sans-serif; }
+      .line { stroke: #76b900; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .muted-line { stroke: #596875; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="520"/>
+  <text class="title" x="48" y="56">GB300 NVL72 Access Path</text>
+  <text class="body" x="48" y="84">Bastion entry point, control-plane operations, and storage/data reachability</text>
+
+  <rect class="card" x="48" y="145" width="210" height="160"/>
+  <rect class="accent" x="48" y="145" width="210" height="8"/>
+  <text class="label" x="72" y="192">LaunchPad Bastion</text>
+  <text class="body" x="72" y="224">Docs, desktop, SSH</text>
+  <text class="body" x="72" y="248">Environment entry point</text>
+  <text class="small" x="72" y="282">Start here</text>
+
+  <rect class="card" x="365" y="92" width="230" height="135"/>
+  <rect class="accent" x="365" y="92" width="230" height="8"/>
+  <text class="label" x="389" y="137">Core Switches</text>
+  <text class="body" x="389" y="169">Management reachable</text>
+  <text class="body" x="389" y="193">from bastion</text>
+
+  <rect class="card" x="365" y="285" width="230" height="135"/>
+  <rect class="accent" x="365" y="285" width="230" height="8"/>
+  <text class="label" x="389" y="330">Control-Plane BMCs</text>
+  <text class="body" x="389" y="362">BMC access reachable</text>
+  <text class="body" x="389" y="386">from bastion</text>
+
+  <rect class="card" x="702" y="175" width="245" height="170"/>
+  <rect class="accent" x="702" y="175" width="245" height="8"/>
+  <text class="label" x="726" y="220">Control-Plane Nodes</text>
+  <text class="body" x="726" y="252">Operational setup</text>
+  <text class="body" x="726" y="276">and system management</text>
+  <text class="small" x="726" y="310">Use these as the main</text>
+  <text class="small" x="726" y="330">environment work hosts</text>
+
+  <rect class="card" x="1010" y="80" width="150" height="105"/>
+  <text class="label" x="1030" y="124">Compute</text>
+  <text class="body" x="1030" y="151">Trays</text>
+
+  <rect class="card" x="1010" y="218" width="150" height="105"/>
+  <text class="label" x="1030" y="262">NVLink</text>
+  <text class="body" x="1030" y="289">Switches</text>
+
+  <rect class="card" x="1010" y="356" width="150" height="105"/>
+  <text class="label" x="1030" y="392">WEKA NFSv4</text>
+  <text class="small" x="1030" y="418">weka-nfs.</text>
+  <text class="small" x="1030" y="438">nvidialaunchpad.internal</text>
+  <text class="body" x="1030" y="457">172.16.5.31-40</text>
+
+  <path class="line" d="M258 205 C300 180, 323 160, 365 154"/>
+  <path class="line" d="M258 250 C300 298, 323 338, 365 352"/>
+  <path class="line" d="M595 352 C642 337, 662 296, 702 270"/>
+  <path class="line" d="M947 242 C980 180, 987 142, 1010 132"/>
+  <path class="line" d="M947 260 C982 260, 990 270, 1010 270"/>
+  <path class="line" d="M947 300 C985 345, 991 384, 1010 398"/>
+  <path class="muted-line" d="M870 345 C905 395, 958 425, 1010 430"/>
+</svg>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>NVIDIA LaunchPad</title>
+
+    <link rel="stylesheet" href="_static/omni-style.css?v=1" type="text/css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple.css"
+    />
+    <link rel="stylesheet" href="_static/css/brand.css" />
+    <link rel="shortcut icon" href="_static/favicon.ico" />
+
+    <style>
+      :root {
+        --theme-color: var(--nv-black);
+        --content-max-width: 85em;
+        --sidebar-background: #000;
+        --heading-color: var(--sidebar-headline-color);
+        --sidebar-nav-strong-color: var(--heading-color);
+        --notice-important-border-color: var(--nv-green);
+        --notice-important-background: #e8fcc6;
+        --blockquote-border-color: var(--nv-green);
+        --blockquote-background: #E8FCC6;
+        --navbar-root-color--active: var(--nv-green);
+        --search-result-item-color: #fcfcfc;
+      }
+      ul {
+        list-style-type: disc !important;
+        margin-left: 1.5em;
+      }
+
+      li::marker {
+        content: initial !important;
+      }
+    </style>
+    <script
+      type="text/javascript"
+      src="https://unpkg.com/external-svg-loader@latest/svg-loader.min.js"
+      async
+    ></script>
+  </head>
+
+  <body class="wy-body-for-nav">
+    <div id="app"></div>
+
+    <script>
+      window.$docsify = {
+        auto2top: true,
+        repo: "",
+        coverpage: true,
+        onlyCover: true,
+        loadSidebar: true,
+        loadNavbar: false,
+        //relativePath: true,
+        subMaxLevel: 2,
+        pagination: {
+          previousText: "Previous",
+          nextText: "Next",
+          crossChapter: true,
+          crossChapterText: false,
+        },
+        requestHeaders: {
+          'cache-control': 'max-age=0',
+        },
+        plugins: [      
+          function pageFooter(hook, vm) {
+            var footer = [
+              "<hr/>",
+              "<footer>",
+              "<p>&#169; Copyright 2026, NVIDIA.</p>",
+              "</footer>",
+            ].join("");
+
+            hook.afterEach(function (html) {
+              return html + footer;
+            });
+          },
+        ],
+      };
+    </script>
+
+    <!-- Docsify v4 -->
+    <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/js/docsify-themeable.min.js"></script>
+    <script src="https://unpkg.com/docsify-copy-code"></script>
+
+    <!-- Recommended -->      
+    <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/zoom-image.min.js"></script>
+    <script src="//unpkg.com/docsify-pagination/dist/docsify-pagination.min.js"></script>
+    <script
+      src="https://kit.fontawesome.com/e2a3adac1e.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <script src="_static/jquery.js"></script>
+
+    <script src="_static/js/progress_bar.js"></script>
+
+  </body>
+</html>

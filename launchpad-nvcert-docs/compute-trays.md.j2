@@ -1,0 +1,79 @@
+# Compute Trays
+
+Compute trays include tray BMC, DPU BMC, DPU host OOB, host OOB, storage, and east-west fabric links. Rows with no IP address are cabling references.
+
+> **Note**
+>
+> Compute tray BMC, DPU BMC, DPU host OOB, and host OOB interfaces are on the 172.16.2.x management network and are reached from the control-plane nodes. Use storage interfaces for WEKA access and east-west interfaces for inter-compute tray communication.
+
+> **Note**
+>
+> East-west interfaces are configured on a single VLAN. During operating system configuration you may need to account for ARP flux behavior; see the NVIDIA DGX OS user guide for mitigation guidance: [DGX OS 7 User Guide](https://docs.nvidia.com/dgx/dgx-os-7-user-guide/dgx-os-7-user-guide.pdf).
+
+## Compute Tray BMC Browser Access
+
+After DHCP is configured on a control-plane node, the compute tray BMCs should receive addresses on the 172.16.2.x management network. DHCP reservations are recommended so each tray keeps a stable BMC address, but the tunnel command can use whatever addresses your DHCP setup assigns.
+
+Run SSH port forwarding from the bastion desktop through a control-plane node that can reach the compute tray BMC network. In this example, `username@172.16.2.10` is the control-plane node, and `172.16.2.11-28` are example compute tray BMC addresses. Update the target IPs to match your DHCP leases or reservations.
+
+```bash
+ssh -fN \
+  -L 8411:172.16.2.11:443 \
+  -L 8412:172.16.2.12:443 \
+  -L 8413:172.16.2.13:443 \
+  -L 8414:172.16.2.14:443 \
+  -L 8415:172.16.2.15:443 \
+  -L 8416:172.16.2.16:443 \
+  -L 8417:172.16.2.17:443 \
+  -L 8418:172.16.2.18:443 \
+  -L 8419:172.16.2.19:443 \
+  -L 8420:172.16.2.20:443 \
+  -L 8421:172.16.2.21:443 \
+  -L 8422:172.16.2.22:443 \
+  -L 8423:172.16.2.23:443 \
+  -L 8424:172.16.2.24:443 \
+  -L 8425:172.16.2.25:443 \
+  -L 8426:172.16.2.26:443 \
+  -L 8427:172.16.2.27:443 \
+  -L 8428:172.16.2.28:443 \
+  username@172.16.2.10
+```
+
+After you enter the control-plane node password, SSH starts the tunnels in the background. Open the BMC web interfaces from a browser on the bastion desktop using the local forwarded ports.
+
+| Bastion Browser URL | Forwarded BMC Target |
+|---|---|
+| `https://localhost:8411` | `172.16.2.11:443` |
+| `https://localhost:8412` | `172.16.2.12:443` |
+| `https://localhost:8413` | `172.16.2.13:443` |
+| `https://localhost:8414` | `172.16.2.14:443` |
+| `https://localhost:8415` | `172.16.2.15:443` |
+| `https://localhost:8416` | `172.16.2.16:443` |
+| `https://localhost:8417` | `172.16.2.17:443` |
+| `https://localhost:8418` | `172.16.2.18:443` |
+| `https://localhost:8419` | `172.16.2.19:443` |
+| `https://localhost:8420` | `172.16.2.20:443` |
+| `https://localhost:8421` | `172.16.2.21:443` |
+| `https://localhost:8422` | `172.16.2.22:443` |
+| `https://localhost:8423` | `172.16.2.23:443` |
+| `https://localhost:8424` | `172.16.2.24:443` |
+| `https://localhost:8425` | `172.16.2.25:443` |
+| `https://localhost:8426` | `172.16.2.26:443` |
+| `https://localhost:8427` | `172.16.2.27:443` |
+| `https://localhost:8428` | `172.16.2.28:443` |
+
+{% set ns = namespace(current='') %}
+{% for item in gb300nvl72_inventory | selectattr('system', 'equalto', gb300nvl72_rack) | selectattr('category', 'equalto', 'compute_tray') %}
+{% set item_key = item.system ~ '/' ~ item.server %}
+{% if item_key != ns.current %}
+{% if ns.current != '' %}
+
+{% endif %}
+## {{ item.server }}
+
+| Component | MAC Address | Switch | Port | Usage | IP Address | User / Password | Notes |
+|---|---|---|---|---|---|---|---|
+{% set ns.current = item_key %}
+{% endif %}
+| {{ item.component }} | <code>{{ item.mac | replace(':', '&#58;') }}</code> | {{ item.switch }} | {{ item.port }} | {{ item.usage }} | {{ item.ip }} | {{ item.user_password }} | {{ item.notes }} |
+{% endfor %}

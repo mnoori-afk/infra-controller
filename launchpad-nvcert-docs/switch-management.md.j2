@@ -1,0 +1,31 @@
+# Switch Management
+
+The switches below are reachable on the out-of-band management network.
+
+> **Note**
+>
+> Switch changes can affect access to the full environment. If you are unsure what a command does, stop and review the NVIDIA documentation before changing interface, routing, bridge, VLAN, MLAG, or management settings.
+
+## Documentation Links
+
+The Ethernet switches in this environment run NVIDIA Cumulus Linux. Use the documentation that matches the installed Cumulus release when making changes.
+
+| Area | Documentation | Use It For |
+|---|---|---|
+| Cumulus Linux | [NVIDIA Cumulus Linux User Guide](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux/) | Switch operating system concepts, interface configuration, routing, bridging, VLANs, services, monitoring, and troubleshooting. |
+| NVUE CLI | [NVIDIA NVUE CLI](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux/System-Configuration/NVIDIA-User-Experience-NVUE/NVUE-CLI/) | Understanding the `nv` command model before making Cumulus Linux configuration changes. |
+| NVUE command reference | [NVIDIA NVUE Command Reference](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux/NVUE-Command-Reference/) | Checking exact command syntax for `nv show`, `nv set`, `nv unset`, `nv config`, and `nv action`. |
+| SN5600 hardware | [NVIDIA Spectrum-4 SN5000 2U Switch Systems Hardware User Manual](https://docs.nvidia.com/networking/display/sn5000) | SN5600 platform details, ports, management interfaces, LEDs, cabling, FRUs, and hardware troubleshooting. |
+| SN2201 management switches | [NVIDIA SN2201 and SN2201_M 1G Management Switch Systems User Manual](https://docs.nvidia.com/networking/display/sn2201switchesum) | SN2201 and SN2201_M platform details, management interfaces, cabling, LEDs, FRUs, and hardware troubleshooting. |
+
+> **Note**
+>
+> Cumulus Linux supports both NVUE and lower-level Linux configuration workflows. Do not mix configuration methods on the same switch unless you are intentionally following a documented recovery or migration procedure.
+
+## Switch Inventory
+
+| Server | Component | MAC Address | Port | Usage | IP Address | User / Password |
+|---|---|---|---|---|---|---|
+{% for item in gb300nvl72_inventory | selectattr('system', 'equalto', gb300nvl72_rack) | selectattr('category', 'equalto', 'switch') %}
+| {{ item.server }} | {{ item.component }} | <code>{{ item.mac | replace(':', '&#58;') }}</code> | {{ item.port }} | {{ item.usage }} | {{ item.ip }} | {{ item.user_password }} |
+{% endfor %}
