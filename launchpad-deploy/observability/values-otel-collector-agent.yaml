@@ -1,0 +1,73 @@
+# OTEL Collector — AGENT (DaemonSet). Follows forged's opentelemetry-collector-v2, minus Panoptes/Kratos.
+# Scrapes every node's /var/log/pods/* — all k8s pod stdout (nico-*, nico-rest, flow, temporal, rack-manager,
+# cert-manager, vault, ... + the CP static pods: apiserver/etcd/scheduler) -> local Loki. Cert-free, no VIP.
+#
+# NOTE: a `journald` receiver (for the cp-1 isc-dhcp-relay, a systemd-only service) was REMOVED after it
+# crash-looped at runtime on these nodes (journal path/access). To re-add: check the node journal layout
+# (`ls /var/log/journal /run/log/journal` on a CP), mount the right dir, and set the receiver `directory`
+# accordingly (or omit `directory` and mount both). Pod logs are the core coverage; journald is a follow-up.
+#
+# v2 parity: chart/image 0.106.1, `loki` exporter -> /loki/api/v1/push (v2 has NOT moved to otlphttp),
+#   loki.resource.labels + loki.format=raw, and forge_site via resource/site-label-loki reading ${env:OTEL_SITE_NAME}.
+# IMAGE PIN: the `loki` exporter is contrib-only (gone after ~0.106 = v2's version).
+mode: daemonset
+fullnameOverride: otel-agent
+image:
+  repository: "otel/opentelemetry-collector-contrib"
+  tag: "0.106.1"
+presets:
+  kubernetesAttributes:
+    enabled: true
+  logsCollection:
+    enabled: true
+# Site label value (v2 pattern). For the nvcert sibling site, change ONLY this value.
+extraEnvs:
+  - name: OTEL_SITE_NAME
+    value: "launchpad"
+# Run as root so filelog can always read /var/log/pods regardless of file perms. runAsNonRoot:false avoids
+# a conflict if the chart defaults it true.
+securityContext:
+  runAsUser: 0
+  runAsNonRoot: false
+config:
+  receivers:
+    filelog:
+      # patch the logsCollection preset: collect all pods, drop our own + loki (avoid feedback loops)
+      include:
+        - /var/log/pods/*/*/*.log
+      exclude:
+        - /var/log/pods/otel_*/opentelemetry-collector/*.log
+        - /var/log/pods/loki_loki-*/*/*.log
+  processors:
+    memory_limiter:
+      limit_percentage: 80
+      spike_limit_percentage: 25
+      check_interval: 1s
+    # v2's resource/site-label-loki — single source of the forge_site value (${env:OTEL_SITE_NAME}).
+    resource/site-label-loki:
+      attributes:
+        - {action: insert, key: forge_site, value: "${env:OTEL_SITE_NAME}"}
+    resource/site-logs-loki:
+      attributes:
+        - {action: insert, key: component, value: "site-controller-filelog"}
+        - action: insert
+          key: loki.resource.labels
+          value: forge_site, k8s.namespace.name, k8s.pod.name, k8s.container.name, k8s.node.name, component
+        - {action: insert, key: loki.format, value: raw}   # raw: don't append OTEL attrs into each line
+    attributes/site-logs-loki:
+      actions:
+        - {action: insert, key: loki.attribute.labels, value: log.file.path}
+    batch: {}
+  exporters:
+    loki:
+      endpoint: http://loki.loki.svc.cluster.local:3100/loki/api/v1/push
+      headers:
+        X-Scope-OrgID: forge
+      default_labels_enabled:
+        exporter: false
+  service:
+    pipelines:
+      logs:
+        receivers: [filelog]
+        processors: [memory_limiter, resource/site-label-loki, k8sattributes, resource/site-logs-loki, attributes/site-logs-loki, batch]
+        exporters: [loki]

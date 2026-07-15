@@ -341,14 +341,14 @@ nico-pxe:
     annotations:
       metallb.universe.tf/loadBalancerIPs: "172.16.2.43"
   # aarch64 ONLY (Grace host + BlueField-3 DPU). No x86_64 (no x86 managed hosts).
-  # BUMPED 2026-06-30 pr-70 -> pr-461 to MATCH Core (v2.0.0-pr-461-g1bbbccd53). The forge-scout AND
-  # forge-dpu agents ship from THIS image's /apt repo, NOT from the Core image — so Core pr-461 alone
-  # did NOT carry the scrub fix (#2975, crates/scout/.../scrabbing.rs zero-size skip) to hosts; the
-  # served forge-scout deb was still pr-70. This bump ships the pr-461 forge-scout + forge-dpu agents.
-  # NOTE: this also rolls the DPU agent pr-70 -> pr-461 (re-test the DPU side) and replaces the stock
+  # BUMPED to pr-503 to MATCH Core (v2.0.0-pr-503-g49a48a69d). The forge-scout AND
+  # forge-dpu agents ship from THIS image's /apt repo, NOT from the Core image — so a Core bump alone
+  # does NOT carry agent fixes to hosts unless this boot-artifacts image is bumped in lockstep. This
+  # image ships the pr-503 forge-scout + forge-dpu agents.
+  # NOTE: bumping this also rolls the DPU agent (re-test the DPU side) and replaces the stock
   # ipxe.efi -> the in-pod ipxe.efi override must be RE-COPIED after this deploy (pod restarts, emptyDir
   # repopulated). COPY PATH = /forge-boot-artifacts/blobs/internal (PR #2813). COPY COMMAND MUST MATCH
-  # the image's top-level dirs — VERIFY pr-461 still ships /aarch64 + /apt (NOT /firmware) before deploy,
+  # the image's top-level dirs — /aarch64 + /apt (NOT /firmware) were VERIFIED present in pr-503,
   # else the init crash-loops on `cp: can't stat`.
   bootArtifactContainers:
     - name: boot-artifacts-aarch64
@@ -366,10 +366,51 @@ nico-ssh-console-rs:
   # global.imagePullSecrets — without this it does an anonymous pull and 403s.
   imagePullSecrets:
     - name: imagepullsecret
+  # OTEL sidecar that ships console transcripts (/var/log/consoles/*) straight to local Loki
+  # (http://loki.loki.svc.cluster.local:3100, org `nico`; see files/otelcol-config.yaml). Ships direct to
+  # Loki over HTTP, so it only needs Loki up (launchpad-deploy/observability/), NOT the OTLP gateway.
+  # ENABLE ordering: deploy Loki first (deploy-observability.sh) -> set enabled:true -> Core helm upgrade
+  # -> `kubectl -n nico-system rollout restart deploy/nico-ssh-console-rs` (chart has no config checksum).
+  lokiLogCollector:
+    enabled: false        # flip to true AFTER Loki exists (see launchpad-deploy/observability/README.md)
+    image:
+      repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+      tag: "0.81.0"
   externalService:
     enabled: true
     annotations:
       metallb.universe.tf/loadBalancerIPs: "172.16.2.49"
+  # SSH-cert admin console auth. The chart exposes NO per-key value — the ONLY override is a full
+  # config.toml via configFiles.config (helm/charts/nico-ssh-console-rs/templates/configmap.yaml).
+  # This reproduces the live dual-image config verbatim and fills the two cert-auth keys that ship
+  # EMPTY in the chart default (files/ssh-console-rs-config.toml), which is why cert login was
+  # silently rejected (empty admin role -> frontend.rs:242 skips the whole cert-auth path).
+  #   openssh_certificate_ca_fingerprints = central NVIDIA Forge SSH user-CA (prod.vault.nvidia.com,
+  #     mount sshca-usercert/issue/ngc) that nvinit/nvcert signs admin certs with. Fleet-wide, NOT
+  #     per-site: it's the same CA that scout + DPU-OS already trust. Verified from a live nvcert
+  #     cert -> "Signing CA: RSA SHA256:sPKzOUJwvkR3aCFf2oCyHnc+JoMtFcow2UxcEz+cXo4".
+  #   admin_certificate_role = the role in the cert Key ID `roles=` list that grants direct-console
+  #     admin (exact string match). Live nvcert certs carry swngc-forge-admins.
+  configFiles:
+    config: |
+      listen_address = "[::]:22"
+      metrics_address = "[::]:9009"
+      nico_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+      carbide_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+      nico_root_ca_path = "/var/run/secrets/spiffe.io/ca.crt"
+      forge_root_ca_path = "/var/run/secrets/spiffe.io/ca.crt"
+      client_cert_path = "/var/run/secrets/spiffe.io/tls.crt"
+      client_key_path = "/var/run/secrets/spiffe.io/tls.key"
+      host_key = "/etc/ssh/ssh_host_ed25519_key"
+      dpus = true
+      insecure = false
+      openssh_certificate_ca_fingerprints = ["SHA256:sPKzOUJwvkR3aCFf2oCyHnc+JoMtFcow2UxcEz+cXo4"]
+      admin_certificate_role = "swngc-forge-admins"
+      insecure_ipmi_ciphers = false
+      force_deactivate_conflicting_ipmi_sol_sessions = false
+      api_poll_interval = "180s"
+      console_logging_enabled = true
+      console_logs_path = "/var/log/consoles"
 
 nico-ntp:
   externalService:
@@ -438,3 +479,8 @@ unbound:
       addresses: ["172.16.2.44", "172.16.2.45", "172.16.2.46"]
     - name: unbound.forge
       addresses: ["172.16.2.42"]
+    # observability stack (launchpad-deploy/observability/) — DPU otelcol dials otel-receiver.forge:443
+    - name: otel-receiver.forge
+      addresses: ["172.16.2.30"]
+    - name: grafana.forge
+      addresses: ["172.16.2.31"]

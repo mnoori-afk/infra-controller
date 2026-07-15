@@ -1,22 +1,25 @@
 # helm-prereqs/values/nico-core.yaml — launchpad fills
 
+> ⚠️ STALE CHECKLIST — `nico/nico-core.launchpad.yaml` is the source of truth. Values below are
+> historical; verify against the YAML.
+
 Edit these fields in `helm-prereqs/values/nico-core.yaml` (leave others at template defaults).
 
 ## nico-api
-- `nico-api.hostname`: `api-launchpad.<your-domain>`  (TODO: confirm domain)
+- `nico-api.hostname`: `api-launchpad.nvidialaunchpad.internal`
 - `nico-api.externalService.annotations."metallb.universe.tf/loadBalancerIPs"`: `172.16.2.40`
 - `nico-api.certificate.extraDnsNames`: keep `carbide-api.forge`, `nico-api.forge`, … + add the hostname above.
 
 ## siteConfig TOML (nico-api.siteConfig.nicoApiSiteConfig)
 ```toml
 sitename = "rg-forge-launchpad"
-initial_domain_name = "launchpad.<your-domain>"      # TODO confirm
-attestation_enabled = false
+initial_domain_name = "api-launchpad.nvidialaunchpad.internal"
+attestation_enabled = true
 dhcp_servers = ["172.16.2.41"]                        # nico-dhcp VIP
 route_servers = []
 enable_route_servers = false
-site_fabric_prefixes = ["172.16.3.0/24"]              # north-south underlay
-deny_prefixes = ["172.16.0.0/24", "172.16.2.0/24", "172.16.3.0/24", "172.16.5.0/24"]
+site_fabric_prefixes = ["172.16.4.128/25"]            # north-south / tenant fabric
+deny_prefixes = []                                    # emptied on launchpad — do NOT deny mgmt underlay 172.16.2.0/24 (holds the VIPs)
 
 [site_explorer]
 run_interval = "30s"
@@ -26,21 +29,28 @@ enabled = true
 enabled = true
 ignore_unassigned_machines = true
 
-[pools.lo-ip]   # dormant (DPU offload off) — small range ok
+[pools.lo-ip]
 type = "ipv4"
-ranges = [{ start = "172.16.3.240", end = "172.16.3.250" }]   # TODO confirm spare; or a 2nd-/24 carve later
+ranges = [{ start = "172.16.3.16", end = "172.16.3.216" }]
 [pools.vlan-id]
 type = "integer"
-ranges = [{ start = "100", end = "501" }]
+ranges = [{ start = "2000", end = "3000" }]
 [pools.vni]
 type = "integer"
 ranges = [{ start = "1024500", end = "1024800" }]
 [pools.vpc-vni]
 type = "integer"
-ranges = [{ start = "0", end = "100" }]
+ranges = [{ start = "60200", end = "60300" }]
 
-[networks.admin]            # managed-host / inband — where trays DHCP
+[networks.admin]            # PLACEHOLDER — admin never allocates in NIC mode. Trays DHCP on launchpad-mgmt, NOT here.
 type = "admin"
+prefix = "172.16.4.0/25"
+gateway = "172.16.4.1"
+mtu = 1500
+reserve_first = 5
+
+[networks.launchpad-mgmt]   # VLAN 200 — where trays DHCP
+type = "underlay"
 prefix = "172.16.2.0/24"
 gateway = "172.16.2.1"
 mtu = 1500
@@ -91,6 +101,13 @@ nico-pxe:
   - carbide-ntp.forge / nico-ntp.forge → `172.16.2.44,172.16.2.45,172.16.2.46`
   - unbound.forge → `172.16.2.42`
 
+## Also in the live YAML (not in this old checklist)
+The current `nico-core.launchpad.yaml` additionally carries:
+- `site_global_vpc_vni = 245002`; `datacenter_asn` + `[fnn.*]` + `[pools.fnn-asn]` (FNN/EVPN config).
+- `[site_explorer]` `create_switches` / `create_power_shelves`, `explore_mode = "nv-redfish"`.
+- `[machine_validation_config]` `tests = [...]` with `forge_DcgmFullLong` disabled.
+- The rack blocks `[rack_profiles.NVL72_GB300]` / `[component_manager]` / `[rms]` (see RACK-CONFIG.md).
+- The `nico-ssh-console-rs.configFiles.config` block (see SSH-CONSOLE.md).
+
 ## TODO before run
 - `NICO_IMAGE_REGISTRY`, `NICO_CORE_IMAGE_TAG`, `REGISTRY_PULL_SECRET` (NGC), unbound + boot-artifacts tags.
-- domain for hostname/initial_domain_name; unbound upstream resolver; lo-ip spare range.

@@ -1,0 +1,27 @@
+# Server cert for the OTEL gateway's OTLP receiver (otel-receiver.forge:443).
+# Issued by **site-issuer** (a ca-type ClusterIssuer backed by the `site-root` secret) so the leaf is signed
+# DIRECTLY by site-root — exactly what the DPU trusts. VERIFIED LIVE on DPU 172.16.2.76 (2026-07-15):
+#   /etc/otelcol-contrib/certs/ca.pem        = CN=site-root, self-signed   (SHA256 31:9A:1F:…:F8:3E)
+#   /etc/otelcol-contrib/certs/otel-cert.pem = DPU client cert, issuer CN=site-root
+# So: server cert -> site-issuer (leaf issuer = site-root). The resulting secret's ca.crt IS site-root, which
+# the gateway also uses as its OTLP client_ca_file to verify the DPU's site-root-signed client cert.
+# (Earlier this used nico-rest-ca-issuer = "NICo Local Dev CA" — a different CA the DPU does NOT trust; that
+#  produced the DPU's "x509: certificate signed by unknown authority" handshake failure.)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: otel-receiver-tls
+  namespace: otel
+spec:
+  secretName: otel-receiver-tls
+  duration: 720h0m0s
+  renewBefore: 360h0m0s
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  dnsNames:
+    - otel-receiver.forge          # SAN the DPU dials (unbound A record -> 172.16.2.30)
+  issuerRef:
+    kind: ClusterIssuer
+    name: site-issuer
+    group: cert-manager.io

@@ -41,9 +41,14 @@ power_shelf_use_state_controller = true
 compute_tray_use_state_controller = true
 
 [rms]
-api_url = "http://rms-api-server.rack-manager:8801"
-enforce_tls = false
+api_url = "https://rms-api-server.rack-manager.svc.cluster.local:8801"
+enforce_tls = true
+root_ca_path = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key  = "/var/run/secrets/spiffe.io/tls.key"
 ```
+(mTLS variant actually applied — matches RMS-ENABLEMENT.md / RMS-RUNBOOK.md and the live
+`nico-core.launchpad.yaml`.)
 
 ## ★ The one bug we fixed in the source draft
 `[rack_profiles.NVL72_300.rack_capabilities.power_shelf]` → **`NVL72_GB300`**. Because
