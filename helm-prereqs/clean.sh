@@ -243,10 +243,18 @@ kubectl get pv -o json 2>/dev/null \
 echo "=== [7/7] Removing local-path-provisioner ==="
 kubectl delete -f operators/storageclass-local-path-persistent.yaml \
     --ignore-not-found 2>/dev/null || true
-kubectl delete -f operators/local-path-provisioner.yaml \
-    --ignore-not-found 2>/dev/null || true
-kubectl delete ns local-path-storage --wait=false --ignore-not-found 2>/dev/null || true
-kubectl wait --for=delete ns/local-path-storage --timeout=60s 2>/dev/null || true
+# Only remove the bundled provisioner if setup.sh actually installed it (its
+# namespace exists). With --single-node-k3s, setup uses the k3s BUILT-IN
+# provisioner — deleting the bundled manifest there would remove k3s's own
+# default `local-path` StorageClass out from under the cluster.
+if kubectl get namespace local-path-storage &>/dev/null; then
+    kubectl delete -f operators/local-path-provisioner.yaml \
+        --ignore-not-found 2>/dev/null || true
+    kubectl delete ns local-path-storage --wait=false --ignore-not-found 2>/dev/null || true
+    kubectl wait --for=delete ns/local-path-storage --timeout=60s 2>/dev/null || true
+else
+    echo "local-path-storage namespace not present — bundled provisioner was not installed (k3s built-in in use); skipping"
+fi
 
 echo ""
 echo "=== Clean complete ==="

@@ -72,14 +72,25 @@ spec:
     nsm: nsm.nico
     {{- end }}
   patroni:
+    {{- if gt (int .Values.postgresql.instances) 1 }}
     synchronous_mode: true
     synchronous_mode_strict: true
     synchronous_node_count: 1
+    {{- else }}
+    ## Single-instance cluster (setup.sh --single-node-k3s): synchronous
+    ## replication with no standby would block every commit forever
+    ## (CREATE DATABASE hangs in SyncRep wait).
+    synchronous_mode: false
+    {{- end }}
   postgresql:
     version: "15"
     parameters:
       max_connections: "1024"
+      {{- if gt (int .Values.postgresql.instances) 1 }}
       synchronous_commit: "remote_apply"
+      {{- else }}
+      synchronous_commit: "on"
+      {{- end }}
       lock_timeout: "2min"
       statement_timeout: "10min"
       idle_in_transaction_session_timeout: "15min"

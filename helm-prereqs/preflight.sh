@@ -27,7 +27,9 @@
 #   2. Required tools           — helm, helmfile, kubectl, jq, ssh-keygen
 #   3. values/metallb-config.yaml — YAML, pools, advertisement mode, ASNs
 #   4. Cluster reachability     — kubectl can reach the API server
-#   5. Node resources           — at least 3 schedulable (Ready + untainted) nodes
+#   5. Node resources           — at least NICO_MIN_NODES schedulable (Ready +
+#                                  untainted) nodes; 3 by default, 1 with
+#                                  --single-node-k3s (also runs k3s sanity checks)
 #   6. MetalLB BGPPeer nodes    — hostnames in config exist in the cluster
 #   7. Per-node checks          — kernel params (sysctl) and DNS on every node
 #   8. Registry connectivity    — registry host is reachable over HTTPS
@@ -77,16 +79,30 @@ _SOURCED=false
 if ! ${_SOURCED}; then
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --skip-core)      SKIP_CORE=true ;;
-            --skip-rest)      SKIP_REST=true ;;
-            --skip-flow)      SKIP_FLOW=true ;;
-            -y|--yes)         AUTO_YES=true ;;
-            --core-values)    CORE_VALUES="$2"; shift ;;
-            --metallb-config) METALLB_CONFIG="$2"; shift ;;
+            --skip-core)       SKIP_CORE=true ;;
+            --skip-rest)       SKIP_REST=true ;;
+            --skip-flow)       SKIP_FLOW=true ;;
+            --single-node-k3s) SINGLE_NODE_K3S=true ;;
+            -y|--yes)          AUTO_YES=true ;;
+            --core-values)     CORE_VALUES="$2"; shift ;;
+            --metallb-config)  METALLB_CONFIG="$2"; shift ;;
             *) ;;  # ignore unknown args when run standalone
         esac
         shift
     done
+fi
+
+# ---------------------------------------------------------------------------
+# Minimum schedulable node count.
+#   default:            3 (HA Vault + Postgres)
+#   --single-node-k3s:  1 (single-pod Vault/Postgres, k3s built-in local-path)
+# NICO_MIN_NODES may also be set explicitly and takes precedence.
+# ---------------------------------------------------------------------------
+SINGLE_NODE_K3S="${SINGLE_NODE_K3S:-false}"
+if [[ "${SINGLE_NODE_K3S}" == "true" ]]; then
+    NICO_MIN_NODES="${NICO_MIN_NODES:-1}"
+else
+    NICO_MIN_NODES="${NICO_MIN_NODES:-3}"
 fi
 
 ERRORS=()
@@ -491,8 +507,27 @@ if [[ "${_CLUSTER_REACHABLE}" == "true" ]]; then
 
     _total=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d '[:space:]')
 
-    if [[ "${_schedulable}" -lt 3 ]]; then
-        ERRORS+=("Only ${_schedulable}/${_total} nodes are schedulable (Ready + untainted) — at least 3 required for HA Vault and Postgres")
+    if [[ "${_schedulable}" -lt "${NICO_MIN_NODES}" ]]; then
+        ERRORS+=("Only ${_schedulable}/${_total} nodes are schedulable (Ready + untainted) — at least ${NICO_MIN_NODES} required (3 for HA Vault and Postgres; 1 with --single-node-k3s)")
+    fi
+
+    # -----------------------------------------------------------------------
+    # 5b. Single-node k3s sanity checks — only with --single-node-k3s.
+    # -----------------------------------------------------------------------
+    if [[ "${SINGLE_NODE_K3S}" == "true" ]]; then
+        _server_ver="$(kubectl version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // ""' || true)"
+        if [[ "${_server_ver}" != *"k3s"* ]]; then
+            WARNINGS+=("--single-node-k3s is set but the API server version '${_server_ver:-unknown}' does not look like k3s — this mode is only validated on k3s (a generic single-node profile may come later)")
+        fi
+        if ! kubectl get deployment local-path-provisioner -n kube-system &>/dev/null; then
+            ERRORS+=("--single-node-k3s: k3s built-in local-path-provisioner not found in kube-system — setup skips the bundled provisioner in this mode, so no PVC would ever bind. Install k3s with its default local-storage addon enabled.")
+        fi
+        # ServiceLB (klipper) programs LoadBalancer services and conflicts with
+        # MetalLB. svclb-* daemonsets only exist once a LoadBalancer Service
+        # does, so absence is not proof — but presence is definite.
+        if kubectl get daemonset -n kube-system -o name 2>/dev/null | grep -q '^daemonset.apps/svclb-'; then
+            WARNINGS+=("k3s ServiceLB (klipper) appears active (svclb-* DaemonSets in kube-system) — reinstall k3s with --disable=servicelb or it will fight MetalLB for LoadBalancer services (see helm-prereqs/k3s-single-node.md)")
+        fi
     fi
 
     # -----------------------------------------------------------------------

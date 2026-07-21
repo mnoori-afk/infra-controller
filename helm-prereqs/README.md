@@ -184,6 +184,7 @@ It supports these common deployment modes:
 | `--skip-rest` | Install prerequisites and Core, but skip all REST phases and REST repo checks. |
 | `--skip-flow` | Skip NICo Flow in Phase 7h. You can also set `flow.enabled=false` in `values.yaml` to omit Flow prerequisites. |
 | `--skip-core --skip-rest` | Infrastructure-only run; image tags, image registry, and REST repo are not required. |
+| `--single-node-k3s` | Dev/test: install on a single-node k3s cluster (single-pod Vault and Postgres, k3s built-in local-path-provisioner, 1-node preflight). See [k3s-single-node.md](k3s-single-node.md). |
 | `--core-values <file>` | Use site-specific Core values instead of `helm-prereqs/values/nico-core.yaml`. |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest file or kustomize directory. |
 | `--site-overlay <dir>` | Apply a site kustomize overlay after Core deploys. |
@@ -192,6 +193,17 @@ It supports these common deployment modes:
 `REGISTRY_PULL_SECRET` is optional. When it is unset, setup does not create or
 inject image pull secrets; images must be public, preloaded, or configured with
 existing imagePullSecrets in values.
+
+## Single-node k3s (dev/test)
+
+The stack can be installed on a single-node k3s cluster with
+`./setup.sh --single-node-k3s`. The flag scales Vault and PostgreSQL down to
+single pods, uses the k3s built-in local-path-provisioner, and relaxes the
+3-node preflight check; everything else (including the values files you must
+fill in) works exactly like the normal install, with MetalLB in L2 mode.
+Installation of k3s itself, required flags (`--disable=servicelb`), and the
+full walkthrough are documented in **[k3s-single-node.md](k3s-single-node.md)**.
+Without the flag, nothing changes for the standard 3-node HA path.
 
 ## What gets deployed
 

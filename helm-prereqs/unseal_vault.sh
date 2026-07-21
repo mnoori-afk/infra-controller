@@ -15,7 +15,10 @@
 # limitations under the License.
 
 # =============================================================================
-# unseal_vault.sh — initialize and unseal a 3-pod HashiCorp Vault HA cluster
+# unseal_vault.sh — initialize and unseal the HashiCorp Vault HA cluster
+#
+# Pod count is read from the vault StatefulSet (3 in the default HA install,
+# 1 when setup.sh is run with --single-node-k3s).
 #
 # Run AFTER `helmfile sync -l name=vault` and BEFORE `helm install nico-prereqs`.
 #
@@ -32,10 +35,23 @@ set -euo pipefail
 
 NAMESPACE="vault"
 
-echo "Waiting for all 3 Vault pods to be Running..."
-# StatefulSets create pods sequentially — vault-1/vault-2 may not exist yet.
+# Derive the pod list from the StatefulSet spec so this works for any replica
+# count (3 in the default HA install, 1 with setup.sh --single-node-k3s).
+VAULT_REPLICAS="$(kubectl get statefulset vault -n "${NAMESPACE}" \
+    -o jsonpath='{.spec.replicas}')"
+if ! [[ "${VAULT_REPLICAS}" =~ ^[0-9]+$ ]] || [[ "${VAULT_REPLICAS}" -lt 1 ]]; then
+    echo "ERROR: could not read replica count from statefulset/vault in ${NAMESPACE} (got '${VAULT_REPLICAS}')"
+    exit 1
+fi
+VAULT_PODS=()
+for _i in $(seq 0 $((VAULT_REPLICAS - 1))); do
+    VAULT_PODS+=("vault-${_i}")
+done
+
+echo "Waiting for all ${VAULT_REPLICAS} Vault pod(s) to be Running..."
+# StatefulSets create pods sequentially — later pods may not exist yet.
 # Poll until each pod exists, then wait for Initialized.
-for POD in vault-0 vault-1 vault-2; do
+for POD in "${VAULT_PODS[@]}"; do
     until kubectl get pod "${POD}" -n "${NAMESPACE}" &>/dev/null; do
         echo "  ${POD} not yet created, retrying in 5s..."
         sleep 5
@@ -48,13 +64,24 @@ done
 echo "All Vault pods are Running"
 
 echo "Checking Vault status on vault-0..."
-VAULT_STATUS_JSON="$(
-    kubectl exec -n "${NAMESPACE}" vault-0 -c vault -- \
-        vault status -tls-skip-verify -format=json 2>/dev/null || true
-)"
+# The Initialized pod condition only covers init containers — the vault
+# container may still be starting (or restarting once while its TLS mounts
+# settle), so retry the first status probe instead of failing on one empty
+# exec. `vault status` exits non-zero when sealed/uninitialized but still
+# prints JSON; only an empty response means the exec itself failed.
+VAULT_STATUS_JSON=""
+for _i in $(seq 1 24); do
+    VAULT_STATUS_JSON="$(
+        kubectl exec -n "${NAMESPACE}" vault-0 -c vault -- \
+            vault status -tls-skip-verify -format=json 2>/dev/null || true
+    )"
+    [[ -n "${VAULT_STATUS_JSON}" ]] && break
+    echo "  vault-0 not answering yet (${_i}/24) — retrying in 5s..."
+    sleep 5
+done
 
 if [[ -z "${VAULT_STATUS_JSON}" ]]; then
-    echo "ERROR: Unable to retrieve Vault status from vault-0."
+    echo "ERROR: Unable to retrieve Vault status from vault-0 after 120s."
     echo "Make sure the Vault pods are running and try again."
     exit 1
 fi
@@ -122,10 +149,13 @@ unseal_pod() {
 }
 
 unseal_pod vault-0
-# Wait for vault-0 (leader) to be elected before unsealing followers
-sleep 10
-unseal_pod vault-1
-unseal_pod vault-2
+if [[ "${VAULT_REPLICAS}" -gt 1 ]]; then
+    # Wait for vault-0 (leader) to be elected before unsealing followers
+    sleep 10
+    for POD in "${VAULT_PODS[@]:1}"; do
+        unseal_pod "${POD}"
+    done
+fi
 
 # Store individual unseal keys and root token as K8s secrets
 CLUSTER_JSON="$(kubectl -n "${NAMESPACE}" get secret vault-cluster-keys -o json \

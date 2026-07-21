@@ -66,6 +66,11 @@
 #   ./setup.sh --core-values /path/to/values.yaml      # use site-specific values for Phase 6
 #   ./setup.sh --metallb-config /path/to/metallb.yaml  # use site-specific MetalLB config (file or kustomize dir)
 #   ./setup.sh --site-overlay /path/to/kustomize-dir   # kubectl apply -k after Phase 6 (NTP services, etc.)
+#   ./setup.sh --single-node-k3s        # dev/test: target a single-node k3s cluster
+#                                       #   (single-pod Vault + Postgres, k3s built-in
+#                                       #   local-path-provisioner, 1-node preflight).
+#                                       #   See k3s-single-node.md. Requires k3s installed
+#                                       #   with --disable=servicelb and an L2 MetalLB config.
 #   ./setup.sh --debug                  # enable bash -x trace (or run: bash -x ./setup.sh)
 #
 # Notes:
@@ -83,6 +88,7 @@ AUTO_YES=false
 SKIP_CORE=false
 SKIP_REST=false
 SKIP_FLOW=false
+SINGLE_NODE_K3S=false
 CORE_VALUES=""
 METALLB_CONFIG=""
 SITE_OVERLAY=""
@@ -92,6 +98,7 @@ while [[ $# -gt 0 ]]; do
         --skip-core)    SKIP_CORE=true ;;
         --skip-rest)    SKIP_REST=true ;;
         --skip-flow)    SKIP_FLOW=true ;;
+        --single-node-k3s) SINGLE_NODE_K3S=true ;;
         --debug)        set -x         ;;
         --core-values)
             [[ -z "${2:-}" ]] && { echo "Error: --core-values requires a file path"; exit 1; }
@@ -108,7 +115,7 @@ while [[ $# -gt 0 ]]; do
             SITE_OVERLAY="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
             [[ ! -d "${SITE_OVERLAY}" ]] && { echo "Error: --site-overlay directory not found: $2"; exit 1; }
             shift ;;
-        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
+        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--single-node-k3s] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
     esac
     shift
 done
@@ -118,7 +125,7 @@ done
 # (in-tree rest-api/) and NICO_REST_HELM_DIR (in-tree helm/rest/). Exits 1 if
 # user declines to continue.
 # ---------------------------------------------------------------------------
-export AUTO_YES SKIP_CORE SKIP_REST SKIP_FLOW
+export AUTO_YES SKIP_CORE SKIP_REST SKIP_FLOW SINGLE_NODE_K3S
 # shellcheck source=preflight.sh
 source "${SCRIPT_DIR}/preflight.sh"
 
@@ -255,13 +262,23 @@ fi
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1/6] local-path-provisioner"
 echo "=== [1/6] local-path-provisioner ==="
-kubectl apply -f operators/local-path-provisioner.yaml
+if "${SINGLE_NODE_K3S}"; then
+    # k3s ships its own local-path-provisioner (kube-system) registering the
+    # same provisioner name (rancher.io/local-path). Installing the bundled
+    # copy would leave two controllers racing on every PVC — use the built-in
+    # one and only add the Retain StorageClass it should serve.
+    echo "single-node-k3s: using the k3s built-in local-path-provisioner (skipping bundled install)"
+else
+    kubectl apply -f operators/local-path-provisioner.yaml
+fi
 # StorageClass provisioner is immutable — delete before apply so a stale
 # provisioner from a previous install doesn't block the update.
 kubectl delete -f operators/storageclass-local-path-persistent.yaml \
     --ignore-not-found 2>/dev/null || true
 kubectl apply -f operators/storageclass-local-path-persistent.yaml
-kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=120s
+if ! "${SINGLE_NODE_K3S}"; then
+    kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=120s
+fi
 if [[ "${NICO_MANAGE_DEFAULT_STORAGE_CLASS}" == "true" ]]; then
     # Mark local-path as the cluster default StorageClass so workloads that
     # don't specify one (e.g. NICo REST postgres, Temporal) get a valid
@@ -345,9 +362,22 @@ echo "Vault TLS bootstrap complete"
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[3/6] vault install"
 echo "=== [3/6] vault ==="
-helmfile sync -l name=vault \
-    --set server.dataStorage.storageClass="${NICO_STORAGE_CLASS}" \
+_VAULT_SET_ARGS=(
+    --set server.dataStorage.storageClass="${NICO_STORAGE_CLASS}"
     --set server.auditStorage.storageClass="${NICO_STORAGE_CLASS}"
+)
+if "${SINGLE_NODE_K3S}"; then
+    # Single-pod Vault: one Raft member, and drop the chart's default
+    # *required* podAntiAffinity so the pod can schedule on the lone node.
+    # The extra retry_join entries and autopilot min_quorum in
+    # operators/values/vault.yaml are harmless with one member.
+    echo "single-node-k3s: deploying Vault with a single replica"
+    _VAULT_SET_ARGS+=(
+        --set server.ha.replicas=1
+        --set server.affinity=""
+    )
+fi
+helmfile sync -l name=vault "${_VAULT_SET_ARGS[@]}"
 
 # ---------------------------------------------------------------------------
 # 4. Initialize + unseal vault
@@ -365,7 +395,13 @@ echo "=== [4/6] unseal vault ==="
 _SETUP_PHASE="[5/6] external-secrets + NICo prereqs"
 echo "=== [5/6] external-secrets + NICo prereqs ==="
 helmfile sync -l name=external-secrets
-helmfile sync -l name=nico-prereqs
+if "${SINGLE_NODE_K3S}"; then
+    # Single-pod Patroni cluster — no HA replicas on a one-node cluster.
+    echo "single-node-k3s: deploying nico-pg-cluster with a single instance"
+    helmfile sync -l name=nico-prereqs --set postgresql.instances=1
+else
+    helmfile sync -l name=nico-prereqs
+fi
 
 # ---------------------------------------------------------------------------
 # Wait for postgres-operator to provision the cluster and ESO to sync creds
@@ -1186,9 +1222,13 @@ for _i in $(seq 1 24); do
     _POD="$(kubectl get pods -n nico-rest \
         -l "app.kubernetes.io/name=nico-rest-site-agent" \
         -o name 2>/dev/null | head -1 || true)"
+    # Current builds log "CoreGrpcClient: Successfully connected to server";
+    # older builds logged "NicoClient: successfully connected to server".
+    # Match both (case-insensitive) or every install false-negatives here and
+    # needlessly restarts the site-agent.
     if [ -n "${_POD}" ] && \
        kubectl logs -n nico-rest "${_POD}" --since=5m 2>/dev/null \
-           | grep -q "NicoClient: successfully connected to server"; then
+           | grep -qiE "(NicoClient|CoreGrpcClient): successfully connected to server"; then
         _CONNECTED=true
         echo "Site-agent successfully connected to NICo Core gRPC"
         break
