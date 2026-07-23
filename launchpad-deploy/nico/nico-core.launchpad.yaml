@@ -25,6 +25,13 @@ global:
 
 nico-api:
   hostname: "api-launchpad.nvidialaunchpad.internal"   # default from launchpad-docs internal domain; change if you have another
+  # Guard against the chart/image webAuth skew: charts at main (post-#3492, 2026-07-20) default
+  # webAuth.mode=basic, but the running pr-503 Core image (post-#761, pre-#3492) REJECTS basic and
+  # crashloops ('CARBIDE_WEB_AUTH_TYPE=basic is not supported'). Live launchpad runs with NO
+  # CARBIDE_WEB_AUTH_TYPE env (pre-#3492 chart) = auth "none". Pin none so the next helm upgrade
+  # with newer charts (e.g. the §12 --force-conflicts heal) doesn't take the API down.
+  webAuth:
+    mode: none
   auth:
     additionalIssuerCns:
       - "site-root"

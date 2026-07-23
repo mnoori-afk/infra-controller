@@ -33,6 +33,14 @@ nico-api:
   # Pattern from launchpad: "api-launchpad.nvidialaunchpad.internal". Ask the team what they
   # are calling this cluster (the Teleport kube context name is usually a good hint).
   hostname: "FILL_ME.nvidialaunchpad.internal"
+  # Admin web UI auth. MUST stay "none" while Core runs a pr-503-era image: basic auth was
+  # removed in #761 (2026-03) and only re-introduced in #3492 (2026-07-20), but the chart at
+  # main now DEFAULTS webAuth.mode=basic — the pr-503 binary rejects it and crashloops with
+  # 'CARBIDE_WEB_AUTH_TYPE=basic is not supported'. "none" is accepted by all builds; the UI
+  # is only reachable on the mgmt network / via tunnel (same posture as launchpad live).
+  # Revisit (basic/oauth2) after bumping Core to a post-#3492 image.
+  webAuth:
+    mode: none
   auth:
     additionalIssuerCns:
       - "site-root"
