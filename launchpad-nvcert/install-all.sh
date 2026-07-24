@@ -95,6 +95,19 @@ if ! grep -qE "^siteName: [\"']?${SITE_NAME}[\"']?$" "${PREREQS}/values.yaml"; t
     echo "Set siteName: \"${SITE_NAME}\" in helm-prereqs/values.yaml"
 fi
 
+# ---- strictARP — REQUIRED for MetalLB-L2 + kube-proxy IPVS (launchpad "Phase 4a") ----
+# Without it every node answers ARP for the VIPs (kube-ipvs0 binds all Service IPs),
+# fighting MetalLB's single-owner model -> VIPs flap. Idempotent check-then-patch.
+if kubectl -n kube-system get cm kube-proxy -o jsonpath='{.data.config\.conf}' 2>/dev/null | grep -q "strictARP: false"; then
+    echo "Enabling kube-proxy ipvs.strictARP (required for MetalLB-L2 + IPVS)..."
+    kubectl -n kube-system get cm kube-proxy -o yaml \
+        | sed 's/strictARP: false/strictARP: true/' | kubectl apply -f -
+    kubectl -n kube-system rollout restart daemonset kube-proxy
+    kubectl -n kube-system rollout status daemonset kube-proxy --timeout=180s
+else
+    echo "kube-proxy strictARP already true (or kube-proxy CM not found — verify manually if VIPs flap)."
+fi
+
 # ---- run the full setup ---------------------------------------------------------
 # No --skip-rest / --skip-flow: Core + REST + Flow + site-agent all install, and
 # phase 7i registers the REST site automatically (UUID minted or adopted by name).

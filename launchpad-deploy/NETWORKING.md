@@ -181,17 +181,20 @@ Status: **applied** (kube-proxy configmap patched, daemonset restarted).
 **Verifying VIPs (arping — L2 mode, no BGP to wait for):**
 
 ```bash
-# From any CP node — one ARP reply per VIP means MetalLB has it assigned and the speaker is healthy.
+# From a CP node — one ARP reply per VIP means MetalLB has it assigned and the speaker is healthy.
 for vip in 172.16.2.40 172.16.2.41 172.16.2.42 172.16.2.43 \
            172.16.2.44 172.16.2.45 172.16.2.46 172.16.2.47 \
            172.16.2.48 172.16.2.49; do
-  arping -c 1 -I bond0 "$vip" 2>&1 | grep -E "ARPING|bytes from" | head -2
+  echo "== $vip =="; arping -c 1 -I bond0 "$vip"
 done
 ```
-
-If a VIP is silent: check `kubectl -n metallb-system get pods -o wide`, look for the speaker pod
-on the owning node, and restart it to trigger MetalLB's automatic gratuitous ARP (GARP) on
-leader re-election — that refreshes any stale switch ARP caches.
+A healthy reply looks like `Unicast reply from <VIP> [<MAC>] 0.3ms` (iputils-arping) or
+`60 bytes from <MAC>` (Habets arping — that one takes `-i`, not `-I`). Test from a node that
+does NOT own the VIP (a node may not wire-ARP for its own address) — cross-check from a second
+node before debugging. If a VIP is silent: check `kubectl -n metallb-system get pods -o wide`,
+find the owning speaker via its logs, and restart it — MetalLB sends gratuitous ARP (GARP) on
+leader re-election, refreshing any stale switch ARP cache. If ALL VIPs flap: re-check strictARP
+(above).
 
 ---
 

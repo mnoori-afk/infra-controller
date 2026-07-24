@@ -86,13 +86,25 @@ Image tags default to the launchpad-validated pins (overridable via env):
 > The Temporal-postgres sizing fix (4Gi/2cpu — the launchpad site-pairing unblocker) is already
 > in-tree on main (`rest-api/deploy/kustomize/base/postgres/statefulset.yaml`); no manual patch.
 
+`install-all.sh` also enables **kube-proxy `ipvs.strictARP`** before setup.sh — a hard
+requirement for MetalLB-L2 + IPVS (without it every node answers ARP for the VIPs and they
+flap). If NICo was brought up some other way, verify it manually — see `NETWORKING.md`
+§"strictARP is REQUIRED".
+
 ---
 
 ## 3. After the install
 
-### 3.1 Vault BMC credentials
-Seed the site-wide BMC root credential (and per-site UEFI passwords) into Vault —
-`../launchpad-deploy/VAULT-CREDS.md`. Without it, site-explorer's Redfish probes fail every cycle.
+### 3.1 Vault credentials — two separate seeds, both are ingestion gates
+
+1. **BMC root credential** (site-wide) — `admin / <tray BMC password>` per
+   `../launchpad-deploy/VAULT-CREDS.md`. Without it, site-explorer's Redfish probes fail
+   every cycle.
+2. **UEFI `site_default` passwords** — the install seeds these Vault paths **with BLANK
+   passwords** (see `helm-prereqs/values.yaml` kvSeeds); the operator must populate them
+   per site or preingestion logs `Missing credential machines/all_{hosts,dpus}/site_default/uefi-metadata-items/auth`:
+   - `secrets/machines/all_hosts/site_default/uefi-metadata-items/auth`
+   - `secrets/machines/all_dpus/site_default/uefi-metadata-items/auth`
 
 ### 3.2 admincli pod
 ```bash
@@ -109,12 +121,36 @@ kubectl -n nico-system exec -i deploy/admincli -- \
 ```
 Chassis serials are `serial-pending-tray-N` placeholders — site-explorer learns them on first contact.
 
-### 3.4 Confirm the DHCP relay
-Trays only get BMC addresses once the switch relay is live (§1.3). Watch:
+### 3.4 Verify the network path: VIPs → DNS → DHCP → ingestion
+
+In order — each layer depends on the previous one:
+
 ```bash
+# 1. VIPs answer ARP (L2 mode — no BGP; see NETWORKING.md §arping for the full loop + caveats)
+arping -c 1 -I bond0 172.16.2.40    # from a CP node that doesn't own the VIP
+
+# 2. .forge DNS resolves via unbound
+nslookup carbide-pxe.forge 172.16.2.42
+nslookup carbide-api.forge 172.16.2.42
+
+# 3. Switch DHCP relay is delivering (leases appear once trays power on; §1.3)
 kubectl -n nico-system logs deploy/nico-dhcp -f | grep -i lease
+
+# 4. Ingestion — expected machines get discovered by site-explorer
 kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli machine list
 ```
+
+**If trays get leases + PXE but stall in `WaitingForDiscovery`** (the launchpad GB300 wall):
+1. Both `.43` pxe services must be ETP=**Local** (`kubectl -n nico-system get svc | grep pxe`) —
+   a `<pending>` EXTERNAL-IP means the MetalLB shared-VIP wedge: restart `metallb-controller`.
+2. `deny_prefixes` must be `[]` in the siteConfig (denying the mgmt underlay blocks the VIPs).
+3. On GB300 the tray host reaches the network THROUGH the BlueField-3: its HBN OVS bridge
+   (`br-hbn`, table 15) can drop host→`172.16.2.0/24` traffic so scout never reaches
+   nico-api/pxe. Check from the DPU: `ovs-ofctl dump-flows br-hbn | grep 172.16.2` — launchpad
+   worked around it with an ovs-ofctl allow rule for `172.16.2.0/24`; the proper fix is with
+   the forge-dpu team (Brian).
+4. Verify scout can resolve + reach `carbide-api.forge` (.40) and `carbide-pxe.forge` (.43)
+   from a tray console (`nico-ssh-console-rs`, VIP .49).
 
 ### 3.5 RMS (rack-manager)
 Separate chart, namespace `rack-manager`. NICo Core is already configured for it

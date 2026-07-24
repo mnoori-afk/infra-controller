@@ -44,39 +44,63 @@
 | `172.16.2.48` | `nico-dns` pod-1 | |
 | `172.16.2.49` | `nico-ssh-console-rs` | Cert-auth SSH console (CA fp `SHA256:sPKz…`) |
 
-> ETP=Cluster on nico-pxe (.43): do NOT change. The .43 VIP is shared between two services
-> (nico-pxe-external port 8080 and nico-pxe-external-80 port 80). Changing ETP on a shared-IP
-> service triggers a MetalLB reallocation that wedges the 8080 VIP in `<pending>`.
+> nico-pxe (.43) is ETP=**Local** and must STAY Local. The .43 VIP is shared between two
+> services (nico-pxe-external :8080 and nico-pxe-external-80 :80, MetalLB allow-shared-ip).
+> Flipping ETP on a shared-IP service triggers a MetalLB reallocation that wedges the 8080
+> VIP in `<pending>` (recovery = restart metallb-controller).
 > See `../launchpad-deploy/NETWORKING.md` for the full analysis.
 
-### Verifying VIPs after Core deploy (arping)
+## MetalLB L2 mode — ARP, not BGP
 
-MetalLB L2 mode (no BGP) makes VIPs reachable purely via ARP — the speaker pod on the owning
-node responds to ARP requests for each VIP on the mgmt segment. There is no BGP advertisement
-or routing-protocol convergence to wait for. Verification is immediate from any CP node:
+The site is static-routed: **no BGP advertisement anywhere**. MetalLB runs in L2 mode —
+for each VIP, exactly one node's speaker pod **answers ARP** on the mgmt segment, and the
+switch learns the VIP's MAC like any host. Two operational consequences:
+
+### 1. strictARP is REQUIRED before NICo (kube-proxy IPVS + MetalLB-L2)
+
+kube-proxy in IPVS mode binds every Service IP to the dummy `kube-ipvs0` interface on
+**every** node. Without strict ARP, all nodes answer ARP for the VIPs, fighting MetalLB's
+single-owner model → the VIP flaps between nodes / goes intermittently dark.
+`install-all.sh` applies this automatically; to check / apply by hand:
 
 ```bash
-# From a CP node — check each VIP has an ARP responder on bond0.
-# A reply means MetalLB has the VIP assigned and the speaker is healthy.
+# check — must print: strictARP: true
+kubectl -n kube-system get cm kube-proxy -o yaml | grep strictARP
+
+# apply + restart kube-proxy (idempotent)
+kubectl -n kube-system get cm kube-proxy -o yaml \
+  | sed 's/strictARP: false/strictARP: true/' | kubectl apply -f -
+kubectl -n kube-system rollout restart daemonset kube-proxy
+```
+
+### 2. Verifying VIPs (arping) — no BGP convergence to wait for
+
+From a CP node, each VIP should answer ARP within one round-trip:
+
+```bash
 for vip in 172.16.2.40 172.16.2.41 172.16.2.42 172.16.2.43 \
            172.16.2.44 172.16.2.45 172.16.2.46 172.16.2.47 \
            172.16.2.48 172.16.2.49; do
-  arping -c 1 -I bond0 "$vip" 2>&1 | grep -E "ARPING|bytes from|Sent" | head -2
+  echo "== $vip =="; arping -c 1 -I bond0 "$vip"
 done
 ```
 
-A healthy VIP reply looks like:
-```
-ARPING 172.16.2.40 from 172.16.2.11 bond0
-60 bytes from 00:11:22:aa:bb:cc (172.16.2.40): index=0 time=0.334 msec
-```
+A healthy VIP answers with a reply line — depending on which arping is installed:
+`Unicast reply from 172.16.2.40 [<MAC>] 0.3ms` (iputils-arping) or
+`60 bytes from <MAC> (172.16.2.40)` (Habets arping; uses `-i` instead of `-I`).
 
-If a VIP returns no reply after ~30s of MetalLB running:
-1. Check the speaker pod on the owning node: `kubectl -n metallb-system get pods -o wide | grep speaker`
-2. Check which node owns the VIP: `kubectl -n metallb-system logs -l component=speaker --prefix | grep <VIP>`
-3. Refresh stale switch ARP caches by triggering a gratuitous ARP from the owning node:
-   `kubectl -n metallb-system exec <speaker-pod> -- arping -c 3 -A -I bond0 <VIP>` (if arping is in the image)
-   or restart the speaker pod to trigger MetalLB's automatic GARP on leader election.
+Caveats and the no-reply path:
+1. **Test from a node that does not own the VIP** — a node may not put ARP for its own
+   address on the wire. If one node sees no reply, cross-check from another node (or a
+   host elsewhere on the VLAN-200 segment) before debugging.
+2. Confirm the VIP is assigned: `kubectl -n nico-system get svc | grep <VIP>` (a
+   `<pending>` EXTERNAL-IP means MetalLB never allocated — check IPAddressPool overlap).
+3. Find the owner + speaker health:
+   `kubectl -n metallb-system logs -l component=speaker --prefix | grep <VIP>` and
+   `kubectl -n metallb-system get pods -o wide`.
+4. Stale switch ARP cache after an owner change: restart the owning speaker pod —
+   MetalLB sends gratuitous ARP (GARP) on leader election, refreshing the switch.
+5. If ALL VIPs are flaky/flapping: strictARP (above) is the first suspect.
 
 ---
 
