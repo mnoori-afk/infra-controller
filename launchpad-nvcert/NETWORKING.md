@@ -49,6 +49,35 @@
 > service triggers a MetalLB reallocation that wedges the 8080 VIP in `<pending>`.
 > See `../launchpad-deploy/NETWORKING.md` for the full analysis.
 
+### Verifying VIPs after Core deploy (arping)
+
+MetalLB L2 mode (no BGP) makes VIPs reachable purely via ARP — the speaker pod on the owning
+node responds to ARP requests for each VIP on the mgmt segment. There is no BGP advertisement
+or routing-protocol convergence to wait for. Verification is immediate from any CP node:
+
+```bash
+# From a CP node — check each VIP has an ARP responder on bond0.
+# A reply means MetalLB has the VIP assigned and the speaker is healthy.
+for vip in 172.16.2.40 172.16.2.41 172.16.2.42 172.16.2.43 \
+           172.16.2.44 172.16.2.45 172.16.2.46 172.16.2.47 \
+           172.16.2.48 172.16.2.49; do
+  arping -c 1 -I bond0 "$vip" 2>&1 | grep -E "ARPING|bytes from|Sent" | head -2
+done
+```
+
+A healthy VIP reply looks like:
+```
+ARPING 172.16.2.40 from 172.16.2.11 bond0
+60 bytes from 00:11:22:aa:bb:cc (172.16.2.40): index=0 time=0.334 msec
+```
+
+If a VIP returns no reply after ~30s of MetalLB running:
+1. Check the speaker pod on the owning node: `kubectl -n metallb-system get pods -o wide | grep speaker`
+2. Check which node owns the VIP: `kubectl -n metallb-system logs -l component=speaker --prefix | grep <VIP>`
+3. Refresh stale switch ARP caches by triggering a gratuitous ARP from the owning node:
+   `kubectl -n metallb-system exec <speaker-pod> -- arping -c 3 -A -I bond0 <VIP>` (if arping is in the image)
+   or restart the speaker pod to trigger MetalLB's automatic GARP on leader election.
+
 ---
 
 ## Control-Plane Node MACs and Static IPs

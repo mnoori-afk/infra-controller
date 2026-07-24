@@ -178,6 +178,21 @@ kubectl -n kube-system rollout restart daemonset kube-proxy
 ```
 Status: **applied** (kube-proxy configmap patched, daemonset restarted).
 
+**Verifying VIPs (arping — L2 mode, no BGP to wait for):**
+
+```bash
+# From any CP node — one ARP reply per VIP means MetalLB has it assigned and the speaker is healthy.
+for vip in 172.16.2.40 172.16.2.41 172.16.2.42 172.16.2.43 \
+           172.16.2.44 172.16.2.45 172.16.2.46 172.16.2.47 \
+           172.16.2.48 172.16.2.49; do
+  arping -c 1 -I bond0 "$vip" 2>&1 | grep -E "ARPING|bytes from" | head -2
+done
+```
+
+If a VIP is silent: check `kubectl -n metallb-system get pods -o wide`, look for the speaker pod
+on the owning node, and restart it to trigger MetalLB's automatic gratuitous ARP (GARP) on
+leader re-election — that refreshes any stale switch ARP caches.
+
 ---
 
 ## 4. DHCP for managed hosts — relay is MANDATORY
