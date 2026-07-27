@@ -131,6 +131,9 @@
 #                          max_concurrency (parallel state-machine tasks).
 #   INGEST_RATE_CSV        Where the Phase 10 loop writes its per-sample
 #                          ingestion counters (CSV). Default: a file under /tmp.
+#   NICO_API_METRICS_SVC   Service:port whose /metrics the Phase 10 loop samples
+#                          for the site-explorer cycle-duration columns (#3756).
+#                          Default: nico-api-metrics:1080
 #   DPF_SIM_IMAGE          dpf-sim-controller image ref for Phase 4b. Default:
 #                          ${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}
 #   DPF_SIM_IMAGE_TAG      Tag for the derived default above. Default: latest
@@ -1140,9 +1143,25 @@ INGEST_RATE_CSV="${INGEST_RATE_CSV:-/tmp/mat-ingestion-rates-$(date +%Y%m%d-%H%M
         | grep -E 'run_interval|concurrent_explorations|explorations_per_run|machines_created_per_run|concurrency_limit|max_concurrency|max_concurrent_machine_updates' \
         | sed 's/^[[:space:]]*//' | tr '\n' ';' )"
     echo "# effective_knobs: ${_KNOBS}"
-    echo "epoch,dhcp_addresses,endpoints_ok,managed_hosts,machines,machines_ready"
+    echo "epoch,dhcp_addresses,endpoints_ok,managed_hosts,machines,machines_ready,se_cycle_ms_sum,se_cycle_iterations"
 } > "$INGEST_RATE_CSV"
 info "per-phase rate samples → ${INGEST_RATE_CSV}"
+
+# Site-explorer cycle duration (#3756): the label-free histogram
+# carbide_site_explorer_iteration_latency_milliseconds on nico-api's /metrics.
+# Recorded as the raw cumulative _sum/_count so post-processing derives the
+# average cycle duration of any window as delta(sum)/delta(count) — the same
+# cumulative-counter convention as the DB columns. Fetched through the
+# API-server service proxy (no port-forward); empty fields mean "sample
+# unavailable" and must be skipped, not read as zero.
+NICO_API_METRICS_SVC="${NICO_API_METRICS_SVC:-nico-api-metrics:1080}"
+_se_cycle_sample() {
+    kubectl get --raw "/api/v1/namespaces/${NICO_SYSTEM_NS}/services/${NICO_API_METRICS_SVC}/proxy/metrics" 2>/dev/null \
+    | awk '
+        /^carbide_site_explorer_iteration_latency_milliseconds_sum/   { s += $NF; seen = 1 }
+        /^carbide_site_explorer_iteration_latency_milliseconds_count/ { c += $NF; seen = 1 }
+        END { if (seen) printf "%.0f,%d", s, c; else print "," }'
+}
 
 _end=$((SECONDS+MACHINE_WAIT)); MACHINES=0
 while (( SECONDS < _end )); do
@@ -1155,7 +1174,7 @@ while (( SECONDS < _end )); do
         (SELECT count(*) FROM machines WHERE controller_state->>'state' = 'ready');" || echo '?/?/?/?/?')"
     IFS=/ read -r _dhcp _eok _mh MACHINES _rdy <<< "$_prog"
     MACHINES="${MACHINES:-0}"; [[ "$MACHINES" == "?" ]] && MACHINES=0
-    echo "$(date +%s),${_dhcp},${_eok},${_mh},${MACHINES},${_rdy}" >> "$INGEST_RATE_CSV"
+    echo "$(date +%s),${_dhcp},${_eok},${_mh},${MACHINES},${_rdy},$(_se_cycle_sample)" >> "$INGEST_RATE_CSV"
     (( MACHINES >= MACHINE_TARGET )) && break
     info "  endpoints_ok=${_eok}/${IFACES}  managed_hosts=${_mh}  machines=${MACHINES} ..."
     # Re-clear any AvoidLockout that latched during the wait (e.g. an
@@ -1189,13 +1208,20 @@ if [[ -s "$INGEST_RATE_CSV" ]]; then
         { for (i = 2; i <= 6; i++) { v[i] = $i + 0
             if (v[i] > first_v[i] && first_t[i] == 0 && v[i] > 0) { if (base_seen[i]) { first_t[i] = $1; first_v[i] = v[i] } }
             if (!base_seen[i]) { base_seen[i] = 1; base_v[i] = v[i]; if (v[i] > 0) { first_t[i] = $1; first_v[i] = v[i] } }
-            last_t[i] = $1; last_v[i] = v[i] } }
+            last_t[i] = $1; last_v[i] = v[i] }
+          # site-explorer cycle columns are cumulative _sum/_count; empty = no sample
+          if ($7 != "" && $8 != "") {
+            if (!se_seen) { se_seen = 1; se_first_s = $7; se_first_c = $8 }
+            se_last_s = $7; se_last_c = $8 } }
         END {
             split("dhcp_addresses endpoints_ok managed_hosts machines machines_ready", n, " ")
             for (i = 2; i <= 6; i++) {
                 dt = last_t[i] - first_t[i]; dv = last_v[i] - first_v[i]
                 rate = (dt > 0) ? sprintf("%.1f", dv * 60 / dt) : "n/a"
-                printf "  %-16s %6d -> %-6d  %ss window  %s/min\n", n[i-1], first_v[i], last_v[i], dt, rate } }
+                printf "  %-16s %6d -> %-6d  %ss window  %s/min\n", n[i-1], first_v[i], last_v[i], dt, rate }
+            if (se_seen && se_last_c > se_first_c)
+                printf "  %-16s %d cycles, avg %.1fs/cycle\n", "se_cycle", \
+                    se_last_c - se_first_c, (se_last_s - se_first_s) / (se_last_c - se_first_c) / 1000 }
     ' "$INGEST_RATE_CSV" | while IFS= read -r l; do info "$l"; done
     ok "rate samples: ${INGEST_RATE_CSV}"
 fi

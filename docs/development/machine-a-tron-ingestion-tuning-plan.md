@@ -14,7 +14,7 @@ the effect of each throughput knob in isolation. Companion to
 | K4 | `site_explorer.machines_created_per_run` | 4 | 40 | `machine_creator.rs:106` — hard cap on managed hosts created per cycle |
 | K5 | `firmware_global.concurrency_limit` | 16 | *(not overridden)* | preingestion-manager — concurrent endpoint transactions (NOT a batch cap; all eligible endpoints are processed each 30s run, ≤N at a time). Also caps firmware flashing concurrency. |
 | K6 | `firmware_global.run_interval` | 30s | *(not overridden)* | preingestion loop period |
-| K7 | `state_controller.max_concurrency` | 10 | *(not overridden)* | `state-controller/src/controller/processor.rs:194` — parallel object state-machine tasks (hostinit/dpuinit advancement). Effective ceiling ≈100: `COMMAND_BUFFER_SIZE = 100` in `api-db/src/work_lock_manager.rs:33` is a hard-coded constant every work unit round-trips through. |
+| K7 | `state_controller.max_concurrency` | 10 | *(not overridden)* | `state-controller/src/controller/processor.rs:194` — parallel object state-machine tasks (hostinit/dpuinit advancement). Effective ceiling ≈100: `COMMAND_BUFFER_SIZE = 100` in `api-db/src/work_lock_manager.rs` is a hard-coded constant every work unit round-trips through. |
 
 Throughput model (creation phase): `hosts_per_hour ≈ K4 × (3600 / K1_secs)`,
 provided the cycle actually completes within `K1` (K3 too high breaks this —
@@ -60,7 +60,3 @@ at 13.5k scale.
 - Ask Matthias Einwag whether `COMMAND_BUFFER_SIZE = 100`
   (`work_lock_manager.rs`) should become configurable before pushing K7
   toward 100.
-- `site_explorer.run_interval`'s doc comment says "5 Minutes" but the default
-  is 120 s — fix the comment while we're in there.
-- Add env-var overrides in `setup-machine-a-tron.sh` for K1/K5/K6/K7 (K2–K4
-  already have them) so runs are scriptable.
