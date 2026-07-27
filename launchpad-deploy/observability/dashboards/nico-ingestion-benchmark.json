@@ -1,0 +1,191 @@
+{
+  "uid": "nico-ingestion-bench",
+  "title": "NICo Ingestion Benchmark (#3738)",
+  "description": "Machine-ingestion pipeline benchmarking for the one-knob-at-a-time tuning campaign (epic #3738). Pairs with helm-prereqs/setup-machine-a-tron.sh Phase-10 CSV and ingestion-rate-report.sh.",
+  "tags": ["nico", "ingestion", "benchmark"],
+  "schemaVersion": 39,
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "knob changes",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "enable": true,
+        "expr": "changes(carbide_config_knob_value[5m]) > 0",
+        "titleFormat": "knob change: {{component}}.{{knob}}",
+        "iconColor": "orange"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Pipeline funnel (now)",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum(carbide_endpoint_exploration_success_count)", "legendFormat": "endpoints explored ok", "instant": true },
+        { "refId": "B", "expr": "sum(carbide_preingestion_per_state{state=\"complete\"})", "legendFormat": "preingestion complete", "instant": true },
+        { "refId": "C", "expr": "sum(carbide_endpoint_exploration_identified_managed_hosts_overall_count)", "legendFormat": "managed hosts identified", "instant": true },
+        { "refId": "D", "expr": "sum(carbide_machines_total)", "legendFormat": "machines", "instant": true },
+        { "refId": "E", "expr": "sum(carbide_machines_per_state{state=\"ready\"})", "legendFormat": "machines Ready", "instant": true }
+      ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Ingestion rate: machines entering Ready vs K4×3600/K1 goal",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(carbide_machines_state_entered_total{state=\"ready\"}[10m])) * 3600", "legendFormat": "Ready entries /h (10m rate)" },
+        { "refId": "B", "expr": "sum(carbide_config_knob_value{component=\"site_explorer\",knob=\"machines_created_per_run\"}) * 3600 / sum(carbide_config_knob_value{component=\"site_explorer\",knob=\"run_interval_seconds\"})", "legendFormat": "creation ceiling K4×3600/K1 /h" },
+        { "refId": "C", "expr": "sum(carbide_machines_per_state{state=\"ready\"})", "legendFormat": "cumulative Ready" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "creation ceiling K4×3600/K1 /h" }, "properties": [ { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } } ] },
+        { "matcher": { "id": "byName", "options": "cumulative Ready" }, "properties": [ { "id": "custom.axisPlacement", "value": "right" } ] }
+      ] }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "End-to-end ingestion duration (first Ready), p50/p90 by anchor",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le, anchor) (rate(carbide_machine_ingestion_duration_seconds_bucket[30m])))", "legendFormat": "p50 {{anchor}}" },
+        { "refId": "B", "expr": "histogram_quantile(0.9, sum by (le, anchor) (rate(carbide_machine_ingestion_duration_seconds_bucket[30m])))", "legendFormat": "p90 {{anchor}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Machines per state (stacked)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (state) (carbide_machines_per_state)", "legendFormat": "{{state}}" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 60, "stacking": { "mode": "normal" } } }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Stuck signal: machines above state SLA + p90 dwell per state",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (state, substate) (carbide_machines_per_state_above_sla) > 0", "legendFormat": "above SLA {{state}}/{{substate}}" },
+        { "refId": "B", "expr": "histogram_quantile(0.9, sum by (le, state) (rate(carbide_machines_time_in_state_seconds_bucket[30m])))", "legendFormat": "p90 dwell {{state}} (s)" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [
+        { "matcher": { "id": "byRegexp", "options": "/^p90 dwell/" }, "properties": [ { "id": "custom.axisPlacement", "value": "right" }, { "id": "unit", "value": "s" } ] }
+      ] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Preingestion: endpoints per state (stacked) + transition rate",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (state) (carbide_preingestion_per_state)", "legendFormat": "{{state}}" },
+        { "refId": "B", "expr": "sum(rate(carbide_preingestion_state_transitions_total[10m])) * 60", "legendFormat": "transitions /min" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 60, "stacking": { "mode": "normal" } } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "transitions /min" }, "properties": [ { "id": "custom.axisPlacement", "value": "right" }, { "id": "custom.stacking", "value": { "mode": "none" } }, { "id": "custom.fillOpacity", "value": 0 }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } } ] }
+      ] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Preingestion transitions by edge (/min)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (from, to) (rate(carbide_preingestion_state_transitions_total[10m])) * 60 > 0", "legendFormat": "{{from}} → {{to}}" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Site-explorer: cycle duration vs run_interval (K1) + time spent per phase",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.9, sum by (le) (rate(carbide_site_explorer_iteration_latency_milliseconds_bucket[15m]))) / 1000", "legendFormat": "cycle p90 (s)" },
+        { "refId": "B", "expr": "sum(rate(carbide_site_explorer_iteration_latency_milliseconds_sum[15m])) / sum(rate(carbide_site_explorer_iteration_latency_milliseconds_count[15m])) / 1000", "legendFormat": "cycle avg (s)" },
+        { "refId": "C", "expr": "sum(carbide_config_knob_value{component=\"site_explorer\",knob=\"run_interval_seconds\"})", "legendFormat": "run_interval K1 (s)" },
+        { "refId": "D", "expr": "sum by (phase) (rate(carbide_site_explorer_phase_latency_milliseconds_sum[15m])) / 1000", "legendFormat": "phase {{phase}} (s spent /s)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "run_interval K1 (s)" }, "properties": [ { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] },
+        { "matcher": { "id": "byRegexp", "options": "/^phase /" }, "properties": [ { "id": "custom.axisPlacement", "value": "right" }, { "id": "custom.fillOpacity", "value": 30 }, { "id": "custom.stacking", "value": { "mode": "normal" } } ] }
+      ] }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Outbound (Redfish & friends): request rate, errors, p90 by backend",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (backend) (rate(carbide_external_call_duration_milliseconds_count[5m]))", "legendFormat": "{{backend}} req/s" },
+        { "refId": "B", "expr": "sum by (backend) (rate(carbide_external_call_duration_milliseconds_count{outcome!=\"ok\"}[5m]))", "legendFormat": "{{backend}} errors/s" },
+        { "refId": "C", "expr": "histogram_quantile(0.9, sum by (le, backend) (rate(carbide_external_call_duration_milliseconds_bucket[5m])))", "legendFormat": "{{backend}} p90 ms" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [
+        { "matcher": { "id": "byRegexp", "options": "/p90 ms$/" }, "properties": [ { "id": "custom.axisPlacement", "value": "right" }, { "id": "unit", "value": "ms" } ] },
+        { "matcher": { "id": "byRegexp", "options": "/errors\\/s$/" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] }
+      ] }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Infra: nico-api / postgres CPU + memory",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"nico-system|postgres\", pod=~\"nico-api.*|nico-pg.*|.*spilo.*|postgres.*\", container!=\"\"}[5m]))", "legendFormat": "{{pod}} CPU cores" },
+        { "refId": "B", "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"nico-system|postgres\", pod=~\"nico-api.*|nico-pg.*|.*spilo.*|postgres.*\", container!=\"\"})", "legendFormat": "{{pod}} mem" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 } }, "overrides": [
+        { "matcher": { "id": "byRegexp", "options": "/mem$/" }, "properties": [ { "id": "custom.axisPlacement", "value": "right" }, { "id": "unit", "value": "bytes" } ] }
+      ] }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Effective tuning knobs (K1–K7, from carbide_config_knob_value)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "carbide_config_knob_value", "legendFormat": "", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "container": true, "endpoint": true, "instance": true, "job": true, "namespace": true, "pod": true, "service": true }, "renameByName": { "Value": "value" } } },
+        { "id": "sortBy", "options": { "sort": [{ "field": "component" }] } }
+      ]
+    }
+  ]
+}
