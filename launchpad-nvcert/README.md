@@ -111,7 +111,44 @@ flap). If NICo was brought up some other way, verify it manually — see `NETWOR
 bash nico/admincli-setup.sh
 ```
 
-### 3.3 Expected-machines seed (the ingestion gate)
+### 3.3 DpuMode hardware prerequisites (do before expected-machines)
+
+These trays are set to `DpuMode` — the BlueField-3 manages host networking. Two hardware
+steps must be done **before** site-explorer can link them:
+
+**a. Power on all DPU BMCs** (BlueField OpenBMC, separate from the tray AMI MegaRAC).
+DPU BMCs also get DHCP leases from the `.50-.250` pool. Confirm they have IPs before loading
+expected-machines.
+
+**b. If any BlueField is currently in NIC mode, switch it to DPU mode + reset:**
+```bash
+# On the host OS of the affected tray (run once per tray that was in NIC mode):
+mlxfwreset -d /dev/mst/mt41692_pciconf0 -l 4 r
+# Then power-cycle the tray (the BlueField needs a cold reboot to apply the mode change).
+```
+
+**c. Populate `fallback_dpu_serial_numbers` in the template (GB300 Lenovo-specific):**
+The GB300 Lenovo host BMC returns `null` for the BlueField `NetworkAdapter.SerialNumber`.
+Without a serial override, site-explorer always logs `"sees no DPUs on this host"` and
+leaves the machine Unlinked. Get the DPU serial for each tray from the DPU BMC:
+```bash
+# From a CP node, for each DPU BMC IP (e.g. 172.16.2.XX):
+curl -sk -u root:<dpu-bmc-password> \
+  https://172.16.2.XX/redfish/v1/Systems/Bluefield | python3 -m json.tool | grep SerialNumber
+# Or from the host BMC:
+curl -sk -u admin:<tray-bmc-password> \
+  https://172.16.2.YY/redfish/v1/Chassis/Riser_Slot1_BlueField_3_SmartNIC_Main_Card | python3 -m json.tool | grep SerialNumber
+```
+Then patch each expected-machine entry (or edit the template and reload):
+```bash
+AC="kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli"
+$AC expected-machine patch --bmc-mac-address <TRAY_BMC_MAC> \
+    --fallback-dpu-serial-number <DPU_SERIAL>
+```
+Repeat for all 18 trays. Without this, no tray will progress past Unlinked in DpuMode.
+Full analysis: `../launchpad-bringup/DPU-HOST-ASSOCIATION.md`.
+
+### 3.4 Expected-machines seed (the ingestion gate)
 ```bash
 export BMC_PASSWORD='<tray BMC password from Vault>'
 bash nico/render.sh       # → nico/expected_machines.nvcert.json  (git-ignored)
@@ -120,6 +157,8 @@ kubectl -n nico-system exec -i deploy/admincli -- \
   < nico/expected_machines.nvcert.json
 ```
 Chassis serials are `serial-pending-tray-N` placeholders — site-explorer learns them on first contact.
+After loading, patch each tray's `fallback-dpu-serial-number` (§3.3c above) — this is the
+**critical step** for DpuMode ingestion on GB300 Lenovo hardware.
 
 ### 3.4 Verify the network path: VIPs → DNS → DHCP → ingestion
 

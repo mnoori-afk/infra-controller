@@ -13,7 +13,7 @@
     "is the managed-host entry; the DPU BMC (BlueField OpenBMC, root) is NOT the ingestion BMC.",
     "Cred admin/${BMC_PASSWORD} matches the Vault site-wide-root BMC cred already seeded.",
     "",
-    "chassis_serial_number = serial-pending-tray-N — not known yet.",
+    "chassis_serial_number = serial-pending-tray-N \u2014 not known yet.",
     "Pull from each Tray BMC via Redfish once reachable:",
     "  GET /redfish/v1/Chassis/<id> .SerialNumber",
     "or let site-explorer learn it and update these entries after first ingestion.",
@@ -47,7 +47,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:c0",
@@ -76,7 +80,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:ba",
@@ -105,7 +113,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:ca",
@@ -134,7 +146,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:cc",
@@ -163,7 +179,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:b8",
@@ -192,7 +212,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:56",
@@ -221,7 +245,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:26",
@@ -250,7 +278,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:c6",
@@ -279,7 +311,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:ce",
@@ -308,7 +344,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:bc",
@@ -337,7 +377,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:24",
@@ -366,7 +410,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:be",
@@ -395,7 +443,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:c8",
@@ -424,7 +476,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b3:d0",
@@ -453,7 +509,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b3:ce",
@@ -482,7 +542,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:1a",
@@ -511,7 +575,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     },
     {
       "bmc_mac_address": "18:3d:2d:9b:b4:18",
@@ -540,7 +608,11 @@
       "bmc_retain_credentials": true,
       "host_lifecycle_profile": {
         "disable_lockdown": true
-      }
+      },
+      "dpf_enabled": false,
+      "fallback_dpu_serial_numbers": [
+        "FILL_ME_DPU_SERIAL"
+      ]
     }
   ]
 }
