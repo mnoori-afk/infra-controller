@@ -111,41 +111,46 @@ flap). If NICo was brought up some other way, verify it manually — see `NETWOR
 bash nico/admincli-setup.sh
 ```
 
-### 3.3 DpuMode hardware prerequisites (do before expected-machines)
+### 3.3 DpuMode prerequisites (do before expected-machines)
 
-These trays are set to `DpuMode` — the BlueField-3 manages host networking. Two hardware
-steps must be done **before** site-explorer can link them:
+These trays are set to `DpuMode`. The BlueField-3 hardware mode switch is **handled automatically
+by NICo** — no manual mlxconfig/mlxfwreset needed. During the site-explorer ingestion loop, NICo
+reads the current mode from the DPU BMC Redfish (`GET /redfish/v1/Systems/Bluefield/Oem/Nvidia`
+→ `Mode`), and if it doesn't match `DpuMode`, it issues a Redfish `Mode.Set` POST and waits for
+a tray power-cycle to apply it. On launchpad the BlueFields were already in `DpuMode` from the
+factory. (Source: `launchpad-bringup/DPU-MODE-RESEARCH-CODE.md`.)
 
-**a. Power on all DPU BMCs** (BlueField OpenBMC, separate from the tray AMI MegaRAC).
-DPU BMCs also get DHCP leases from the `.50-.250` pool. Confirm they have IPs before loading
-expected-machines.
+Two things you DO need to handle:
 
-**b. If any BlueField is currently in NIC mode, switch it to DPU mode + reset:**
-```bash
-# On the host OS of the affected tray (run once per tray that was in NIC mode):
-mlxfwreset -d /dev/mst/mt41692_pciconf0 -l 4 r
-# Then power-cycle the tray (the BlueField needs a cold reboot to apply the mode change).
-```
+**a. Power on all DPU BMCs** (BlueField OpenBMC — separate from the tray AMI MegaRAC BMC).
+DPU BMCs get their own DHCP leases from the `.50-.250` pool (MAC OUI `e0:9d:73:*`, hostname
+`dpu-bmc` in kea leases). Confirm they have IPs before loading expected-machines — NICo needs
+to reach the DPU BMC via Redfish to detect/set mode and to associate the DPU to its host.
+Also seed **DPU BMC credentials** in Vault (`root` / `<dpu-bmc-password>`) — site-explorer
+reads these from Vault when calling the DPU BMC Redfish.
 
-**c. Populate `fallback_dpu_serial_numbers` in the template (GB300 Lenovo-specific):**
+**b. `fallback_dpu_serial_numbers` — required on GB300 Lenovo (the critical step):**
 The GB300 Lenovo host BMC returns `null` for the BlueField `NetworkAdapter.SerialNumber`.
-Without a serial override, site-explorer always logs `"sees no DPUs on this host"` and
-leaves the machine Unlinked. Get the DPU serial for each tray from the DPU BMC:
+NICo associates host↔DPU by serial number match; without the fallback, it always logs
+`"sees no DPUs on this host"` and the machine stays Unlinked indefinitely.
+
+Get the DPU serial for each tray (auth: `root` / `<dpu-bmc-password>`):
 ```bash
-# From a CP node, for each DPU BMC IP (e.g. 172.16.2.XX):
+# From a CP node or any host on the mgmt VLAN, per DPU BMC IP:
 curl -sk -u root:<dpu-bmc-password> \
-  https://172.16.2.XX/redfish/v1/Systems/Bluefield | python3 -m json.tool | grep SerialNumber
-# Or from the host BMC:
+  https://<DPU_BMC_IP>/redfish/v1/Systems/Bluefield | python3 -m json.tool | grep SerialNumber
+# Or from the host tray BMC (auth: admin / <tray-bmc-password>):
 curl -sk -u admin:<tray-bmc-password> \
-  https://172.16.2.YY/redfish/v1/Chassis/Riser_Slot1_BlueField_3_SmartNIC_Main_Card | python3 -m json.tool | grep SerialNumber
+  https://<TRAY_BMC_IP>/redfish/v1/Chassis/Riser_Slot1_BlueField_3_SmartNIC_Main_Card \
+  | python3 -m json.tool | grep SerialNumber
 ```
-Then patch each expected-machine entry (or edit the template and reload):
+Then patch each expected-machine (repeat for all 18 trays):
 ```bash
 AC="kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli"
 $AC expected-machine patch --bmc-mac-address <TRAY_BMC_MAC> \
     --fallback-dpu-serial-number <DPU_SERIAL>
 ```
-Repeat for all 18 trays. Without this, no tray will progress past Unlinked in DpuMode.
+Without this, no tray reaches Linked in DpuMode.
 Full analysis: `../launchpad-bringup/DPU-HOST-ASSOCIATION.md`.
 
 ### 3.4 Expected-machines seed (the ingestion gate)
