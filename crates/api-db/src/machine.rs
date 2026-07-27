@@ -2125,6 +2125,62 @@ pub async fn update_state(
     Ok(())
 }
 
+/// Whether `machine_state_history` already holds a `Ready` record for this
+/// machine. `Ready` is re-entered over a machine's life (cleanup, instance
+/// release), so "first Ready ever" checks must run BEFORE `update_state`
+/// persists the new state — `advance` writes the history row.
+pub async fn has_prior_ready_state(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<bool, DatabaseError> {
+    let query = "SELECT EXISTS(
+            SELECT 1 FROM machine_state_history
+            WHERE object_id = $1 AND state->>'state' = 'ready')";
+    let (exists,): (bool,) = sqlx::query_as(query)
+        .bind(machine_id.to_string())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(exists)
+}
+
+/// Ingestion timing anchors for one machine, read from the database's own
+/// clocks at emission time: the `Machine` model deliberately does not map the
+/// `machines.created` column, and the earliest `machine_interfaces.created`
+/// (the machine's own interfaces plus those of its attached DPUs) predates
+/// machine creation — it is the first DHCP sighting.
+pub struct IngestionAnchors {
+    pub machine_created: DateTime<Utc>,
+    pub first_interface_created: Option<DateTime<Utc>>,
+}
+
+/// Load [`IngestionAnchors`] for a machine; `None` if the machine row is gone.
+pub async fn ingestion_anchors(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Option<IngestionAnchors>, DatabaseError> {
+    let query = "SELECT
+            m.created,
+            (SELECT min(mi.created) FROM machine_interfaces mi
+              WHERE mi.machine_id = m.id
+                 OR mi.machine_id IN (
+                      SELECT mi2.attached_dpu_machine_id FROM machine_interfaces mi2
+                       WHERE mi2.machine_id = m.id
+                         AND mi2.attached_dpu_machine_id IS NOT NULL))
+         FROM machines m WHERE m.id = $1";
+    let row: Option<(DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(query)
+        .bind(machine_id.to_string())
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(row.map(
+        |(machine_created, first_interface_created)| IngestionAnchors {
+            machine_created,
+            first_interface_created,
+        },
+    ))
+}
+
 pub async fn update_machine_validation_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,

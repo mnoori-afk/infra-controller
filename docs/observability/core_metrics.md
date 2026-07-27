@@ -46,6 +46,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_client_tcp_connect_errors_total</td><td>counter</td><td>Number of failed outbound TCP connect attempts across all HTTP connectors</td></tr>
 <tr><td>carbide_client_tcp_connect_successes_total</td><td>counter</td><td>Number of successful outbound TCP connects across all HTTP connectors</td></tr>
 <tr><td>carbide_concurrent_machine_updates_available</td><td>gauge</td><td>Number of machines in the system that can be updated concurrently.</td></tr>
+<tr><td>carbide_config_knob_value</td><td>gauge</td><td>Effective ingestion-tuning knob values (#3738), captured at process start</td></tr>
 <tr><td>carbide_database_transaction_rollback_failures_total</td><td>counter</td><td>Number of database transaction rollback failures, by trigger.</td></tr>
 <tr><td>carbide_db_pool_idle_conns</td><td>gauge</td><td>Number of idle connections in the carbide database pool</td></tr>
 <tr><td>carbide_db_pool_total_conns</td><td>gauge</td><td>Number of (active + idle) connections in the carbide database pool</td></tr>
@@ -130,6 +131,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_machine_identity_sign_proxy_failures_total</td><td>counter</td><td>Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage.</td></tr>
 <tr><td>carbide_machine_identity_stored_secret_decryption_failures_total</td><td>counter</td><td>Number of stored machine identity secret decryption failures, by secret kind.</td></tr>
 <tr><td>carbide_machine_identity_token_exchange_failures_total</td><td>counter</td><td>Number of machine identity token exchange failures, by failure stage</td></tr>
+<tr><td>carbide_machine_ingestion_duration_seconds</td><td>histogram</td><td>Time from a machine&#39;s ingestion anchor (first interface seen / machine created) until it first entered the Ready state</td></tr>
 <tr><td>carbide_machine_instance_info</td><td>gauge</td><td>Association between a host machine and its tenant instance. Exposed only on the opt-in per-object endpoint.</td></tr>
 <tr><td>carbide_machine_reboot_duration_seconds</td><td>histogram</td><td>Time taken for machine/host to reboot in seconds</td></tr>
 <tr><td>carbide_machine_updates_started_count</td><td>gauge</td><td>Number of machines in the system in the process of updating</td></tr>
@@ -207,7 +209,9 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_preingestion_bfb_copy_duration_seconds</td><td>histogram</td><td>Duration of preingestion BFB copies to a DPU rshim, by outcome; the _count series, split by outcome, is the copy and failure rate.</td></tr>
 <tr><td>carbide_preingestion_firmware_upgrade_tasks_total</td><td>counter</td><td>Number of preingestion firmware upgrade Redfish tasks reaching a terminal state, by firmware component, final task state, and outcome.</td></tr>
 <tr><td>carbide_preingestion_firmware_upload_total</td><td>counter</td><td>Number of preingestion firmware uploads to a BMC, by upload method and outcome.</td></tr>
+<tr><td>carbide_preingestion_per_state</td><td>gauge</td><td>Number of explored endpoints in each preingestion state, by state tag</td></tr>
 <tr><td>carbide_preingestion_power_control_total</td><td>counter</td><td>Number of preingestion Redfish power operations (host power control, BMC and chassis resets), by operation and outcome.</td></tr>
+<tr><td>carbide_preingestion_state_transitions_total</td><td>counter</td><td>Number of preingestion state-machine transitions, by from and to state</td></tr>
 <tr><td>carbide_preingestion_total</td><td>gauge</td><td>Number of known machines currently being evaluated prior to ingestion</td></tr>
 <tr><td>carbide_preingestion_waiting_download</td><td>gauge</td><td>Number of machines that are waiting for firmware downloads on other machines to complete before doing their own</td></tr>
 <tr><td>carbide_preingestion_waiting_installation</td><td>gauge</td><td>Number of machines which have had firmware uploaded to them and are currently in the process of installing that firmware</td></tr>

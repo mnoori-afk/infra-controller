@@ -24,14 +24,18 @@ use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, O
 use libredfish::model::task::TaskState;
 use libredfish::{RedfishError, SystemPowerControl};
 use model::firmware::FirmwareComponentType;
-use opentelemetry::StringValue;
 use opentelemetry::metrics::Meter;
+use opentelemetry::{KeyValue, StringValue};
 
 #[derive(Clone, Debug)]
 pub struct PreingestionMetrics {
     pub machines_in_preingestion: usize,
     pub waiting_for_installation: usize,
     pub delayed_uploading: u64,
+    /// Endpoint count per preingestion state tag (#3738/#3756): the values
+    /// are `PreingestionStateLabel::as_str()` names, one entry per state seen
+    /// this iteration.
+    pub per_state: Vec<(&'static str, u64)>,
 }
 
 impl PreingestionMetrics {
@@ -40,6 +44,7 @@ impl PreingestionMetrics {
             machines_in_preingestion: 0,
             waiting_for_installation: 0,
             delayed_uploading: 0,
+            per_state: Vec::new(),
         }
     }
 }
@@ -70,6 +75,25 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<PreingestionM
                     observer.observe(metrics.waiting_for_installation as u64, attrs)
                 });
             }).build();
+    }
+
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("carbide_preingestion_per_state")
+            .with_description(
+                "Number of explored endpoints in each preingestion state, by state tag",
+            )
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    for (state, count) in &metrics.per_state {
+                        let mut attrs = attrs.to_vec();
+                        attrs.push(KeyValue::new("state", *state));
+                        observer.observe(*count, &attrs);
+                    }
+                });
+            })
+            .build();
     }
 
     {

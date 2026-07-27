@@ -36,6 +36,45 @@ use state_controller::io::StateControllerIO;
 use crate::context::MachineStateHandlerContextObjects;
 use crate::metrics::MachineMetricsEmitter;
 
+/// Which database timestamp a [`MachineIngestionCompleted`] duration is
+/// measured from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+enum IngestionAnchor {
+    /// The machine's earliest `machine_interfaces.created` (including its
+    /// DPUs' interfaces): the first DHCP sighting, so the full end-to-end
+    /// ingestion time.
+    InterfaceCreated,
+    /// `machines.created`: exploration/identification already done, so the
+    /// creation→Ready portion of the pipeline.
+    MachineCreated,
+}
+
+/// One host finished ingestion: it entered `Ready` for the first time in its
+/// life (`machine_state_history` is the arbiter, so later re-entries after
+/// cleanup or instance release never re-emit). Emitted once per
+/// [`IngestionAnchor`], with both durations read from the database's own
+/// clocks — the same anchors `helm-prereqs/ingestion-rate-report.sh` reads,
+/// so the histogram and the offline report line up (#3756, #3738).
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "machine_ingestion_completed",
+    metric_name = "carbide_machine_ingestion_duration_seconds",
+    component = "machine-controller",
+    log = info,
+    metric = histogram,
+    message = "Machine entered Ready for the first time",
+    describe = "Time from a machine's ingestion anchor (first interface seen / machine created) \
+                until it first entered the Ready state"
+)]
+struct MachineIngestionCompleted {
+    #[label]
+    anchor: IngestionAnchor,
+    #[observation]
+    duration: std::time::Duration,
+    #[context]
+    machine_id: MachineId,
+}
+
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
 pub struct MachineStateControllerIO {
@@ -133,7 +172,36 @@ impl StateControllerIO for MachineStateControllerIO {
         _new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<bool, DatabaseError> {
+        // First-Ready detection must precede the write: `update_state`
+        // persists the new state into `machine_state_history`, the "prior
+        // Ready" arbiter. Only Ready entries pay for the extra query.
+        let first_ready = matches!(new_state, ManagedHostState::Ready)
+            && !db::machine::has_prior_ready_state(txn, object_id).await?;
+
         db::machine::update_state(txn, object_id, new_state).await?;
+
+        if first_ready {
+            // Emitted inside the transaction; if the engine's commit fails
+            // afterwards the observation is spurious, but that path also
+            // retries the state write, which then no longer counts as first
+            // Ready — the histogram can only over-count on a lost commit,
+            // never double-count.
+            if let Some(anchors) = db::machine::ingestion_anchors(txn, object_id).await? {
+                let now = chrono::Utc::now();
+                carbide_instrument::emit(MachineIngestionCompleted {
+                    anchor: IngestionAnchor::MachineCreated,
+                    duration: (now - anchors.machine_created).to_std().unwrap_or_default(),
+                    machine_id: *object_id,
+                });
+                if let Some(first_interface) = anchors.first_interface_created {
+                    carbide_instrument::emit(MachineIngestionCompleted {
+                        anchor: IngestionAnchor::InterfaceCreated,
+                        duration: (now - first_interface).to_std().unwrap_or_default(),
+                        machine_id: *object_id,
+                    });
+                }
+            }
+        }
         Ok(true)
     }
 
@@ -391,5 +459,39 @@ impl StateControllerIO for MachineStateControllerIO {
             &object_state.aggregate_health,
             &self.sla_config,
         )
+    }
+}
+
+#[cfg(test)]
+mod ingestion_metric_tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    /// The e2e histogram records seconds under bounded anchor labels; the
+    /// machine id stays log-only context, never a metric label.
+    #[test]
+    fn ingestion_duration_exposition() {
+        let metrics = carbide_instrument::testing::MetricsCapture::start();
+        carbide_instrument::emit(MachineIngestionCompleted {
+            anchor: IngestionAnchor::InterfaceCreated,
+            duration: std::time::Duration::from_secs(1800),
+            machine_id: MachineId::from_str(
+                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
+            )
+            .unwrap(),
+        });
+
+        let encoded = metrics.render();
+        assert!(encoded.contains("# TYPE carbide_machine_ingestion_duration_seconds histogram\n"));
+        let sample = encoded
+            .lines()
+            .find(|line| {
+                line.starts_with("carbide_machine_ingestion_duration_seconds_sum{")
+                    && line.contains("anchor=\"interface_created\"")
+            })
+            .unwrap_or_else(|| panic!("missing interface_created sum sample:\n{encoded}"));
+        assert!(sample.ends_with(" 1800"), "records seconds: {sample}");
+        assert!(!sample.contains("machine_id"), "{sample}");
     }
 }

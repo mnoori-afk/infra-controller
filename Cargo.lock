@@ -1346,6 +1346,7 @@ dependencies = [
  "mac_address",
  "names",
  "octseq",
+ "opentelemetry 0.32.0",
  "regex",
  "rustc-hash",
  "serde",

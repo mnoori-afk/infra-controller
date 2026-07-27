@@ -506,19 +506,186 @@ pub async fn request_exploration_for_addresses(
     Ok(())
 }
 
+/// A [`PreingestionState`] name as a bounded metric label. Variants mirror
+/// `PreingestionState` (the exhaustive match in [`Self::from_state`] breaks
+/// the build when a state is added without a label), plus `None` for
+/// endpoints without a state and `Unknown` for tags this build cannot parse
+/// (rows written by newer/older NICo versions). `LabelValue` is implemented
+/// by hand so the rendered values are exactly the serde tags stored in
+/// `preingestion_state->>'state'` — one vocabulary across the DB, the
+/// transitions counter, and the per-state gauge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreingestionStateLabel {
+    Initial,
+    RecheckVersions,
+    ScriptRunning,
+    BfbRecoveryNeeded,
+    BfbPlatformPowercycle,
+    BfbCopyInProgress,
+    BfbInstallationWait,
+    InitialReset,
+    InitialBmcReset,
+    SetNtpServers,
+    TimeSyncReset,
+    UpgradeFirmwareWait,
+    ResetForNewFirmware,
+    NewFirmwareReportedWait,
+    RecheckVersionsAfterFailure,
+    Failed,
+    Complete,
+    None,
+    Unknown,
+}
+
+impl PreingestionStateLabel {
+    /// The serde tag as stored in the database (lowercase variant name).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Initial => "initial",
+            Self::RecheckVersions => "recheckversions",
+            Self::ScriptRunning => "scriptrunning",
+            Self::BfbRecoveryNeeded => "bfbrecoveryneeded",
+            Self::BfbPlatformPowercycle => "bfbplatformpowercycle",
+            Self::BfbCopyInProgress => "bfbcopyinprogress",
+            Self::BfbInstallationWait => "bfbinstallationwait",
+            Self::InitialReset => "initialreset",
+            Self::InitialBmcReset => "initialbmcreset",
+            Self::SetNtpServers => "setntpservers",
+            Self::TimeSyncReset => "timesyncreset",
+            Self::UpgradeFirmwareWait => "upgradefirmwarewait",
+            Self::ResetForNewFirmware => "resetfornewfirmware",
+            Self::NewFirmwareReportedWait => "newfirmwarereportedwait",
+            Self::RecheckVersionsAfterFailure => "recheckversionsafterfailure",
+            Self::Failed => "failed",
+            Self::Complete => "complete",
+            Self::None => "none",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn from_state(state: &PreingestionState) -> Self {
+        match state {
+            PreingestionState::Initial => Self::Initial,
+            PreingestionState::RecheckVersions => Self::RecheckVersions,
+            PreingestionState::ScriptRunning => Self::ScriptRunning,
+            PreingestionState::BfbRecoveryNeeded { .. } => Self::BfbRecoveryNeeded,
+            PreingestionState::BfbPlatformPowercycle { .. } => Self::BfbPlatformPowercycle,
+            PreingestionState::BfbCopyInProgress { .. } => Self::BfbCopyInProgress,
+            PreingestionState::BfbInstallationWait { .. } => Self::BfbInstallationWait,
+            PreingestionState::InitialReset { .. } => Self::InitialReset,
+            PreingestionState::InitialBMCReset { .. } => Self::InitialBmcReset,
+            PreingestionState::SetNtpServers { .. } => Self::SetNtpServers,
+            PreingestionState::TimeSyncReset { .. } => Self::TimeSyncReset,
+            PreingestionState::UpgradeFirmwareWait { .. } => Self::UpgradeFirmwareWait,
+            PreingestionState::ResetForNewFirmware { .. } => Self::ResetForNewFirmware,
+            PreingestionState::NewFirmwareReportedWait { .. } => Self::NewFirmwareReportedWait,
+            PreingestionState::RecheckVersionsAfterFailure { .. } => {
+                Self::RecheckVersionsAfterFailure
+            }
+            PreingestionState::Failed { .. } => Self::Failed,
+            PreingestionState::Complete => Self::Complete,
+        }
+    }
+
+    /// Parse a raw `preingestion_state->>'state'` tag from the database.
+    pub fn from_db_tag(tag: Option<&str>) -> Self {
+        let Some(tag) = tag else {
+            return Self::None;
+        };
+        match tag {
+            "initial" => Self::Initial,
+            "recheckversions" => Self::RecheckVersions,
+            "scriptrunning" => Self::ScriptRunning,
+            "bfbrecoveryneeded" => Self::BfbRecoveryNeeded,
+            "bfbplatformpowercycle" => Self::BfbPlatformPowercycle,
+            "bfbcopyinprogress" => Self::BfbCopyInProgress,
+            "bfbinstallationwait" => Self::BfbInstallationWait,
+            "initialreset" => Self::InitialReset,
+            "initialbmcreset" => Self::InitialBmcReset,
+            "setntpservers" => Self::SetNtpServers,
+            "timesyncreset" => Self::TimeSyncReset,
+            "upgradefirmwarewait" => Self::UpgradeFirmwareWait,
+            "resetfornewfirmware" => Self::ResetForNewFirmware,
+            "newfirmwarereportedwait" => Self::NewFirmwareReportedWait,
+            "recheckversionsafterfailure" => Self::RecheckVersionsAfterFailure,
+            "failed" => Self::Failed,
+            "complete" => Self::Complete,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl carbide_instrument::LabelValue for PreingestionStateLabel {
+    fn label_value(&self) -> opentelemetry::StringValue {
+        opentelemetry::StringValue::from(self.as_str())
+    }
+}
+
+/// One endpoint's preingestion state machine moved from one state to another
+/// (#3738/#3756: preingestion is otherwise invisible per-state; rates over
+/// this counter show where endpoints spend their time and where they pile
+/// up). Same-state rewrites (field-only updates such as attempt counters) do
+/// not count as transitions.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "preingestion_state_changed",
+    metric_name = "carbide_preingestion_state_transitions_total",
+    component = "nico-api",
+    log = debug,
+    metric = counter,
+    message = "Preingestion state changed",
+    describe = "Number of preingestion state-machine transitions, by from and to state"
+)]
+struct PreingestionStateChanged {
+    #[label]
+    from: PreingestionStateLabel,
+    #[label]
+    to: PreingestionStateLabel,
+    #[context]
+    address: IpAddr,
+}
+
 async fn set_preingestion(
     address: IpAddr,
     state: PreingestionState,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE explored_endpoints SET preingestion_state = $1 WHERE address = $2";
-    sqlx::query(query)
+    // The FROM-subquery is evaluated against the statement's snapshot, so
+    // `old_state` is the pre-update tag — one round-trip captures the
+    // transition for the counter below.
+    let query = "UPDATE explored_endpoints e
+        SET preingestion_state = $1
+        FROM (SELECT address, preingestion_state->>'state' AS old_state
+                FROM explored_endpoints WHERE address = $2) o
+        WHERE e.address = o.address
+        RETURNING o.old_state";
+    let old_state: Option<Option<String>> = sqlx::query_scalar(query)
         .bind(sqlx::types::Json(&state))
         .bind(address)
-        .execute(txn)
+        .fetch_optional(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+    if let Some(old_state) = old_state {
+        let from = PreingestionStateLabel::from_db_tag(old_state.as_deref());
+        let to = PreingestionStateLabel::from_state(&state);
+        if from != to {
+            carbide_instrument::emit(PreingestionStateChanged { from, to, address });
+        }
+    }
     Ok(())
+}
+
+/// Endpoint counts per preingestion state tag (`preingestion_state->>'state'`,
+/// `NULL` included), for the `carbide_preingestion_per_state` gauge.
+pub async fn count_preingestion_states(
+    txn: impl DbReader<'_>,
+) -> Result<Vec<(Option<String>, i64)>, DatabaseError> {
+    let query = "SELECT preingestion_state->>'state' AS state, count(*)
+        FROM explored_endpoints GROUP BY 1";
+    sqlx::query_as(query)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn set_preingestion_recheck_versions(
@@ -943,7 +1110,11 @@ mod count_preingest_tests {
     /// blob and the given preingestion `state`. Both are built from the real
     /// model types so the row-returning path can deserialize them — which is
     /// exactly the per-row cost the count path avoids.
-    async fn seed_endpoint(txn: &mut PgConnection, addr: &str, state: PreingestionState) {
+    pub(crate) async fn seed_endpoint(
+        txn: &mut PgConnection,
+        addr: &str,
+        state: PreingestionState,
+    ) {
         // A real report with a deliberately large field, so the row-returning
         // path has genuine multi-KB jsonb to decode; the count path never
         // touches it.
@@ -1007,5 +1178,162 @@ mod count_preingest_tests {
         assert_eq!(rows.len(), 2, "two endpoints are installing firmware");
         assert_eq!(count, 2, "count agrees with the row count");
         assert_eq!(count, rows.len() as i64);
+    }
+}
+
+#[cfg(test)]
+mod preingestion_state_metrics_tests {
+    use model::site_explorer::BfbPlatformPowercyclePhase;
+
+    use super::count_preingest_tests::seed_endpoint;
+    use super::*;
+
+    /// Every `PreingestionState` variant, with dummy field values: the
+    /// exhaustiveness that `PreingestionStateLabel::from_state`'s match
+    /// enforces at compile time, made iterable for runtime checks.
+    fn all_states() -> Vec<PreingestionState> {
+        let now = chrono::Utc::now();
+        let ip: IpAddr = "10.0.0.5".parse().unwrap();
+        vec![
+            PreingestionState::Initial,
+            PreingestionState::RecheckVersions,
+            PreingestionState::ScriptRunning,
+            PreingestionState::BfbRecoveryNeeded {
+                reason: "r".into(),
+                host_bmc_ip: ip,
+                pre_copy_powercycle: false,
+            },
+            PreingestionState::BfbPlatformPowercycle {
+                host_bmc_ip: ip,
+                phase: BfbPlatformPowercyclePhase::PowerOff,
+                post_install: false,
+            },
+            PreingestionState::BfbCopyInProgress {
+                started_at: now,
+                host_bmc_ip: ip,
+            },
+            PreingestionState::BfbInstallationWait {
+                started_at: now,
+                host_bmc_ip: ip,
+            },
+            PreingestionState::InitialReset {
+                phase: InitialResetPhase::Start,
+                last_time: now,
+            },
+            PreingestionState::InitialBMCReset {
+                phase: InitialBmcResetPhase::Start { attempts: 0 },
+            },
+            PreingestionState::SetNtpServers {
+                set_at: None,
+                attempts: 0,
+            },
+            PreingestionState::TimeSyncReset {
+                phase: TimeSyncResetPhase::Start,
+                last_time: now,
+                attempt: 0,
+            },
+            PreingestionState::UpgradeFirmwareWait {
+                task_id: "t".into(),
+                final_version: "1".into(),
+                upgrade_type: FirmwareComponentType::default(),
+                power_drains_needed: None,
+                firmware_number: None,
+            },
+            PreingestionState::ResetForNewFirmware {
+                final_version: "1".into(),
+                upgrade_type: FirmwareComponentType::default(),
+                power_drains_needed: None,
+                delay_until: None,
+                last_power_drain_operation: None,
+            },
+            PreingestionState::NewFirmwareReportedWait {
+                final_version: "1".into(),
+                upgrade_type: FirmwareComponentType::default(),
+                previous_reset_time: None,
+            },
+            PreingestionState::RecheckVersionsAfterFailure { reason: "r".into() },
+            PreingestionState::Failed { reason: "r".into() },
+            PreingestionState::Complete,
+        ]
+    }
+
+    /// The label vocabulary is one closed loop: for every state,
+    /// `from_state` agrees with parsing the serde tag the database stores
+    /// (`preingestion_state->>'state'`), and `as_str` renders that same tag.
+    /// A new variant that misses one of the three sites fails here (or at
+    /// compile time, for `from_state`).
+    #[test]
+    fn label_vocabulary_round_trips_through_serde_tags() {
+        for state in all_states() {
+            let label = PreingestionStateLabel::from_state(&state);
+            let json = serde_json::to_value(&state).unwrap();
+            let tag = json.get("state").and_then(|v| v.as_str()).unwrap();
+            assert_eq!(label.as_str(), tag, "as_str must render the serde tag");
+            assert_eq!(
+                PreingestionStateLabel::from_db_tag(Some(tag)),
+                label,
+                "from_db_tag must parse the serde tag back to the same label"
+            );
+        }
+        assert_eq!(
+            PreingestionStateLabel::from_db_tag(None),
+            PreingestionStateLabel::None
+        );
+        assert_eq!(
+            PreingestionStateLabel::from_db_tag(Some("not-a-state")),
+            PreingestionStateLabel::Unknown
+        );
+    }
+
+    /// `count_preingestion_states` groups by the raw tag, NULL rows included.
+    #[crate::sqlx_test]
+    async fn count_preingestion_states_groups_by_tag(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        seed_endpoint(&mut txn, "10.0.2.1", PreingestionState::Initial).await;
+        seed_endpoint(&mut txn, "10.0.2.2", PreingestionState::Initial).await;
+        seed_endpoint(&mut txn, "10.0.2.3", PreingestionState::Complete).await;
+
+        let counts = count_preingestion_states(&mut *txn).await.unwrap();
+        let get = |tag: &str| {
+            counts
+                .iter()
+                .find(|(t, _)| t.as_deref() == Some(tag))
+                .map(|(_, c)| *c)
+        };
+        assert_eq!(get("initial"), Some(2));
+        assert_eq!(get("complete"), Some(1));
+    }
+
+    /// A state write that changes the tag emits one transition sample with
+    /// bounded from/to labels and no high-cardinality address label; a
+    /// same-tag rewrite emits nothing.
+    #[crate::sqlx_test]
+    async fn set_preingestion_counts_transitions(pool: sqlx::PgPool) {
+        let metrics = carbide_instrument::testing::MetricsCapture::start();
+        let mut txn = pool.begin().await.unwrap();
+        let addr: IpAddr = "10.0.3.1".parse().unwrap();
+        seed_endpoint(&mut txn, "10.0.3.1", PreingestionState::Initial).await;
+
+        // initial -> recheckversions: one transition.
+        set_preingestion_recheck_versions(addr, &mut txn)
+            .await
+            .unwrap();
+        // recheckversions -> recheckversions: a rewrite, not a transition.
+        set_preingestion_recheck_versions(addr, &mut txn)
+            .await
+            .unwrap();
+
+        let encoded = metrics.render();
+        let sample = encoded
+            .lines()
+            .find(|line| line.starts_with("carbide_preingestion_state_transitions_total{"))
+            .unwrap_or_else(|| panic!("missing transition sample:\n{encoded}"));
+        assert!(sample.contains("from=\"initial\""), "{sample}");
+        assert!(sample.contains("to=\"recheckversions\""), "{sample}");
+        assert!(
+            sample.ends_with(" 1"),
+            "same-tag rewrite must not count: {sample}"
+        );
+        assert!(!sample.contains("address"), "{sample}");
     }
 }

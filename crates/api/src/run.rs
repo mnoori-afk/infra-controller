@@ -83,6 +83,7 @@ pub async fn run(
         meter,
         _meter_provider,
     } = setup_metrics(logging.spancount_reader.clone())?;
+    crate::metrics::register_config_knob_gauge(&meter, &carbide_config);
 
     // All background tasks that run "forever" (until canceled) are added to this JoinSet. When
     // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,

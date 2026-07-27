@@ -60,6 +60,7 @@ lazy_static = { workspace = true }
 mac_address = { workspace = true }
 names = { default-features = false, workspace = true }
 octseq = { workspace = true }
+opentelemetry = { workspace = true }
 regex = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { features = ["derive"], workspace = true }

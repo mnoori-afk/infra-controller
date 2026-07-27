@@ -20,7 +20,7 @@ mod config;
 mod errors;
 mod metrics;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::default::Default;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr};
@@ -282,6 +282,15 @@ impl PreingestionManager {
         metrics.waiting_for_installation = db::explored_endpoints::count_preingest_installing(&db)
             .await?
             .max(0) as usize;
+        // Per-state populations (#3738/#3756). Folded through the bounded
+        // label so tags this build cannot parse aggregate under "unknown"
+        // instead of duplicating attribute sets in the gauge callback.
+        let mut per_state: BTreeMap<&'static str, u64> = BTreeMap::new();
+        for (tag, count) in db::explored_endpoints::count_preingestion_states(&db).await? {
+            let label = db::explored_endpoints::PreingestionStateLabel::from_db_tag(tag.as_deref());
+            *per_state.entry(label.as_str()).or_default() += count.max(0) as u64;
+        }
+        metrics.per_state = per_state.into_iter().collect();
 
         tracing::debug!(
             machines_in_preingestion = metrics.machines_in_preingestion,

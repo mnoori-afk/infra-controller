@@ -54,6 +54,7 @@ pub(crate) fn setup_metrics(spancount_reader: Option<SpanCountReader>) -> eyre::
         .with_resource(service_telemetry_attributes)
         .with_view(retry_histogram_view("*_attempts_*")?)
         .with_view(retry_histogram_view("*_retries_*")?)
+        .with_view(ingestion_duration_histogram_view()?)
         .with_view(ApiMetricsEmitter::machine_reboot_duration_view()?)
         .with_view(carbide_site_explorer::site_explorer_latency_histogram_view(
             "carbide_site_explorer_*_latency",
@@ -92,6 +93,93 @@ fn retry_histogram_view(name_filter: &'static str) -> carbide_metrics_utils::Res
             record_min_max: true,
         },
     )
+}
+
+/// Configures a View for the machine-ingestion end-to-end histogram
+/// (`carbide_machine_ingestion_duration_seconds`, emitted by
+/// machine-controller on a machine's first `Ready`). Ingestion takes minutes
+/// to hours, so the default millisecond-oriented buckets would collapse every
+/// observation into `+Inf`; these boundaries span 5 minutes to 6 hours.
+fn ingestion_duration_histogram_view() -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        "carbide_machine_ingestion_duration_seconds",
+        Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram),
+        opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
+            boundaries: vec![
+                300.0, 600.0, 900.0, 1200.0, 1800.0, 2700.0, 3600.0, 5400.0, 7200.0, 10800.0,
+                14400.0, 21600.0,
+            ],
+            record_min_max: true,
+        },
+    )
+}
+
+/// Exposes the ingestion-tuning knob values (#3738) as a constant gauge —
+/// `carbide_config_knob_value{component, knob}` — so dashboards can display
+/// the effective configuration, derive throughput goal lines
+/// (machines_created_per_run × 3600 / run_interval), and annotate run
+/// boundaries when a tuning run changes them. Values are captured once at
+/// startup; knob changes arrive via process restart.
+pub(crate) fn register_config_knob_gauge(
+    meter: &Meter,
+    config: &carbide_api_core::cfg::file::CarbideConfig,
+) {
+    use opentelemetry::KeyValue;
+
+    let knobs: Vec<(&'static str, &'static str, f64)> = vec![
+        (
+            "site_explorer",
+            "run_interval_seconds",
+            config.site_explorer.run_interval.as_secs_f64(),
+        ),
+        (
+            "site_explorer",
+            "concurrent_explorations",
+            config.site_explorer.concurrent_explorations as f64,
+        ),
+        (
+            "site_explorer",
+            "explorations_per_run",
+            config.site_explorer.explorations_per_run as f64,
+        ),
+        (
+            "site_explorer",
+            "machines_created_per_run",
+            config.site_explorer.machines_created_per_run as f64,
+        ),
+        (
+            "firmware_global",
+            "concurrency_limit",
+            config.firmware_global.concurrency_limit as f64,
+        ),
+        (
+            "firmware_global",
+            "run_interval_seconds",
+            config.firmware_global.run_interval.num_seconds() as f64,
+        ),
+        (
+            "machine_state_controller",
+            "max_concurrency",
+            config.machine_state_controller.controller.max_concurrency as f64,
+        ),
+    ];
+    meter
+        .f64_observable_gauge("carbide_config_knob_value")
+        .with_description(
+            "Effective ingestion-tuning knob values (#3738), captured at process start",
+        )
+        .with_callback(move |observer| {
+            for (component, knob, value) in &knobs {
+                observer.observe(
+                    *value,
+                    &[
+                        KeyValue::new("component", *component),
+                        KeyValue::new("knob", *knob),
+                    ],
+                );
+            }
+        })
+        .build();
 }
 
 fn register_spancount_gauge(meter: &Meter, spancount_reader: Option<SpanCountReader>) {
