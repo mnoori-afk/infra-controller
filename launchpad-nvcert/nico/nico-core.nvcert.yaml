@@ -222,9 +222,11 @@ nico-api:
       type = "integer"
       ranges = [{ start = "4268000000", end = "4268000099" }]  # FILL_ME: confirm with network team
 
-      # Placeholder admin segment. nico-api REQUIRES a [networks.admin] block with non-empty
-      # prefix/gateway (else it panics at startup). NIC-mode hosts use HostInband/underlay NOT admin,
-      # so nothing is ever allocated here. Small unused prefix to avoid overlap with real nets.
+      # Admin segment — DPU-mode hosts allocate their admin/overlay IP from here. Each of the
+      # 18 DPU-mode trays gets one IP, so the pool needs >= 18 free addresses.
+      # Launchpad widened from /29 (only 6 IPs) to /24 after running out. A /25 gives 118
+      # usable addresses after reserve_first=5 — sufficient for 18 trays with headroom.
+      # IMPORTANT: site_fabric_prefixes must NOT overlap this prefix (hard-validated by nico-api).
       [networks.admin]
       type = "admin"
       prefix = "172.16.4.0/25"
