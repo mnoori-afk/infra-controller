@@ -1,5 +1,6 @@
-# Teleport provision-token for the nvcert k8s cluster (kube-agent join).
-# This is SEPARATE from the SSH TPM token (nvcert-token.yaml).
+# Teleport provision-token for the nvcert k8s cluster (kube-agent join, static_jwks).
+# The JWKS keys below were extracted from the cluster via:
+#   kubectl get --raw /openid/v1/jwks
 #
 # REGISTER on nv-stg:
 #   tsh login --proxy=nv-stg-dgxc.teleport.sh
@@ -12,5 +13,9 @@ spec:
   roles: [Kube]
   join_method: kubernetes
   kubernetes:
+    type: static_jwks
+    static_jwks:
+      jwks: |
+        {"keys":[{"use":"sig","kty":"RSA","kid":"EUm58UJ2O_yUJrOywUbYLcX30-_dtfA9G7UY_r_2UXU","alg":"RS256","n":"siGydcCQjNjKnRVdY8PcjrBX7XhE6jA62IKycjImOH3bfLXQKA4b_p1OhACcUg6-yg0Tpc5s-YecsNNWlsdE_XeRDpsyUKpAURVoASVwnxGS--ddW54NQl3dORhJiyJHg6hl5MVPfZjbKdW6AqeqR82-RWT1SmLswPSR6bzMcIgmzNk2yZQaQkxsvUs8jVkb4ToVveqeuF0JoGoKzbqQUmLmokBFv8DC7iua3BXxpEnzggBurVw7S0Uy0PuJnoO1qQpEpoW1-GhIuUNM9wgbq891GeFexKsGw17sqAvaeDo-6W5P6OnI32t6bpFXf-DLxuaORzzZj3XGmFeD2r3dwQ","e":"AQAB"}]}
     allow:
       - service_account: "teleport:teleport-kube-agent"
