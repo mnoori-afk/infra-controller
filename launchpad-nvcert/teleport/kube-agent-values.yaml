@@ -1,11 +1,10 @@
 # teleport-kube-agent Helm values — onboards the nvcert k8s cluster into Teleport
-# so `tsh kube login rg-forge-<SITE_NAME>` works.
+# so `tsh kube login launchpad-nvcert` works.
 # Mirrors launchpad-deploy/teleport/kube-agent-values.yaml.
 #
-# PREREQ: the kube join token "rg-forge-<SITE_NAME>" must be registered on nv-stg.
-# This is a SEPARATE token from the SSH TPM token (nvcert-token.yaml).
-# Ask the platform team to create it (roles: [Kube], join_method: kubernetes)
-# via stardrive components/teleport/joincluster.sh or tctl.
+# PREREQ: the kube join token "rg-forge-launchpad-nvcert" must be registered on nv-stg
+# (separate from the SSH TPM token). Ask the platform team to create it via
+# stardrive components/teleport/joincluster.sh or tctl (roles: [Kube], join_method: kubernetes).
 #
 # Deploy after k8s is up and NICo Core is installed:
 #   helm upgrade --install teleport-kube-agent teleport/teleport-kube-agent \
@@ -15,19 +14,16 @@
 
 roles: "kube"
 proxyAddr: "nv-stg-dgxc.teleport.sh:443"
-
-# MUST equal the Teleport cluster name (no port). Omitting causes "invalid audience claim".
 teleportClusterName: "nv-stg-dgxc.teleport.sh"
 
-# How this cluster appears in `tsh kube ls`. Replace <SITE_NAME> with the agreed name.
-kubeClusterName: "rg-forge-<SITE_NAME>"
+kubeClusterName: "launchpad-nvcert"   # appears in `tsh kube ls` and `tsh kube login launchpad-nvcert`
 
 enterprise: true
 
 joinParams:
   method: kubernetes
   type: static_jwks
-  tokenName: "rg-forge-<SITE_NAME>"   # MUST match the kube token registered on nv-stg
+  tokenName: "rg-forge-launchpad-nvcert"   # MUST match the kube token registered on nv-stg
 
 labels:
   environment: non-prod
@@ -36,8 +32,6 @@ labels:
 highAvailability:
   replicaCount: 1
 
-# Grants cluster-admin to the access-forge-dgxc-prod-admin Teleport kube group
-# (the group your tsh profile carries).
 adminClusterRoleBinding:
   create: true
   name: access-forge-dgxc-prod-admin
