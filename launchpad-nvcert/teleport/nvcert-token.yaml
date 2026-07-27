@@ -1,0 +1,29 @@
+# Teleport provision-token for nvcert site-controller SSH node enrollment (TPM join).
+# Same structure as launchpad-deploy/teleport/launchpad-token.yaml.
+#
+# FILL_ME: after running install_teleport.sh on each CP node, copy the ek_public_hash
+# from each node's `tbot tpm identify` output into the allow list below.
+#
+# REGISTER on nv-stg (admin with tctl access):
+#   tsh login --proxy=nv-stg-dgxc.teleport.sh
+#   tctl create -f nvcert-token.yaml        # first time
+#   tctl create -f nvcert-token.yaml        # safe to re-run to add/update EKs
+#
+# Token name MUST match the TELEPORT_TOKEN env var used in install_teleport.sh.
+# Replace <SITE_NAME> with the agreed site name (e.g. nvcert, rg-forge-nvcert, etc.)
+kind: token
+version: v2
+metadata:
+  name: rg-forge-<SITE_NAME>-nodes-tpm
+spec:
+  roles: [Node]
+  join_method: tpm
+  tpm:
+    allow:
+      - description: "nvcert-control-plane-1"
+        ek_public_hash: "FILL_ME"   # from: sudo tbot tpm identify  on cp-1 (172.16.2.11)
+      - description: "nvcert-control-plane-2"
+        ek_public_hash: "FILL_ME"   # from: sudo tbot tpm identify  on cp-2 (172.16.2.12)
+      - description: "nvcert-control-plane-3"
+        ek_public_hash: "FILL_ME"   # from: sudo tbot tpm identify  on cp-3 (172.16.2.13)
+      # Add cp-4 through cp-13 (workers) here when needed, same pattern.
