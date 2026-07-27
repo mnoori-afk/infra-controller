@@ -20,9 +20,9 @@ spec:
   tpm:
     allow:
       - description: "gb300control01"
-        ek_public_hash: "FILL_ME"   # sudo tbot tpm identify  on gb300control01
+        ek_public_hash: "37e5866f572e1868db2e8a54bd8f9d381c955f96b540b09b629b8ee79e8a79b9"
       - description: "gb300control02"
-        ek_public_hash: "FILL_ME"   # sudo tbot tpm identify  on gb300control02
+        ek_public_hash: "bd0990b69a59e3b79095563b5eeb6c1f8b033cadaae73147b3bdf19b053efa27"
       - description: "gb300control03"
-        ek_public_hash: "FILL_ME"   # sudo tbot tpm identify  on gb300control03
+        ek_public_hash: "9306c74f7b8de42c6514a5b309482d6802fd670d388827db11153c2fe3d40810"   # run: sudo tbot tpm identify  on gb300control03
       # Add more nodes (cp-4 through cp-13) here as needed, same pattern.

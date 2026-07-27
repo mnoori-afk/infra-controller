@@ -1,0 +1,16 @@
+# Teleport provision-token for the nvcert k8s cluster (kube-agent join).
+# This is SEPARATE from the SSH TPM token (nvcert-token.yaml).
+#
+# REGISTER on nv-stg:
+#   tsh login --proxy=nv-stg-dgxc.teleport.sh
+#   tctl create -f nvcert-kube-token.yaml
+kind: token
+version: v2
+metadata:
+  name: rg-forge-launchpad-nvcert
+spec:
+  roles: [Kube]
+  join_method: kubernetes
+  kubernetes:
+    allow:
+      - service_account: "teleport:teleport-kube-agent"
