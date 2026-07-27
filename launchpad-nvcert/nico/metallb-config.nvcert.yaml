@@ -5,6 +5,16 @@
 # VIP map (must match values/nico-core.nvcert.yaml):
 #   nico-api .40 (external) | nico-dhcp .41 | unbound .42 | nico-pxe .43
 #   nico-ntp .44/.45/.46    | nico-dns .47/.48 | nico-ssh-console-rs .49   (internal)
+#   observability: otel-receiver .30 (DPU OTLP gateway) | grafana .31       (same map as launchpad)
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: vip-pool-observability
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.16.2.30-172.16.2.31   # otel-receiver (DPU OTLP gateway, WITH_DPU only), grafana
 ---
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -33,3 +43,4 @@ spec:
   ipAddressPools:
     - vip-pool-internal
     - vip-pool-external
+    - vip-pool-observability

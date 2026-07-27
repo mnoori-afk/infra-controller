@@ -446,3 +446,8 @@ unbound:
       addresses: ["172.16.2.44", "172.16.2.45", "172.16.2.46"]
     - name: unbound.forge
       addresses: ["172.16.2.42"]
+    # observability (install-all.sh phase 8; same VIP map as launchpad)
+    - name: grafana.forge
+      addresses: ["172.16.2.31"]
+    - name: otel-receiver.forge
+      addresses: ["172.16.2.30"]

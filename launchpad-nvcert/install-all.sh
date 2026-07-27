@@ -15,6 +15,10 @@
 #   Phase 7i     site-agent + AUTOMATIC REST site registration (setup.sh resolves/mints the
 #                site UUID, seeds the REST DB site row, and the chart bootstrap Job registers
 #                and stores the OTP — no separate register-rest-site.sh needed)
+#   Phase 8      observability: local Loki + OTEL agent (all pod logs) + kube-prometheus-stack
+#                (Prometheus scraping the carbide_* metrics + Grafana at GRAFANA_VIP), via
+#                launchpad-deploy/observability/deploy-observability.sh with this site's name.
+#                Skip with SKIP_OBSERVABILITY=true; DPU OTLP/mTLS gateway with WITH_DPU=true.
 #
 # NOT installed here (post-steps, see README):
 #   - Vault BMC credential seeding (VAULT-CREDS.md) + expected-machines load
@@ -32,6 +36,10 @@
 #   NICO_REST_IMAGE_TAG   default v2.1.0-pr-14-g0d5452b9a   (REST + Flow share this line)
 #   NICO_ORG              default ncx
 #   AUTO_YES=true         skip the context confirmation prompt
+#   SKIP_OBSERVABILITY=true  skip phase 8 (Loki/OTEL/Prometheus/Grafana)
+#   GRAFANA_VIP           default 172.16.2.31 (must be in the MetalLB observability pool)
+#   OTEL_RECEIVER_VIP     default 172.16.2.30 (WITH_DPU=true only)
+#   WITH_DPU=true         also deploy the DPU OTLP/mTLS gateway (real DPUs only)
 
 set -euo pipefail
 
@@ -115,6 +123,22 @@ cd "${PREREQS}"
 ./setup.sh -y \
     --core-values "${CORE_VALUES}" \
     --metallb-config "${METALLB_CONFIG}"
+
+# ---- phase 8: observability (metrics + logs collection) --------------------------
+# Local Loki + OTEL agent + kube-prometheus-stack from launchpad-deploy/observability/,
+# labeled with THIS site's name so its dashboards/queries line up with the launchpad
+# conventions. The .30/.31 VIPs come from vip-pool-observability in the metallb config.
+if [[ "${SKIP_OBSERVABILITY:-false}" != "true" ]]; then
+    echo ""
+    echo "==> phase 8: observability stack (SKIP_OBSERVABILITY=true to skip)"
+    OTEL_SITE_NAME="${SITE_NAME}" \
+    GRAFANA_VIP="${GRAFANA_VIP:-172.16.2.31}" \
+    OTEL_RECEIVER_VIP="${OTEL_RECEIVER_VIP:-172.16.2.30}" \
+    WITH_DPU="${WITH_DPU:-false}" \
+        "${REPO}/launchpad-deploy/observability/deploy-observability.sh"
+else
+    echo "phase 8: observability SKIPPED (SKIP_OBSERVABILITY=true)"
+fi
 
 # ---- post-verify ----------------------------------------------------------------
 echo ""

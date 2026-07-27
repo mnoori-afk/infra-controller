@@ -132,17 +132,23 @@ run TLS-only (drop `client_ca_file`) or skip DPU — phases 1–4 have no cert d
 
 ## Replicate to another site (e.g. `launchpad-nvcert`)
 
-Copy this whole `observability/` folder into the sibling site's deploy dir. The bundle is site-generic
-except three things — change **only** these:
+The per-site knobs are now **env overrides on `deploy-observability.sh`** — the values files keep the
+launchpad-validated values and you change nothing in them:
 
-1. **Site label** — `OTEL_SITE_NAME` (`extraEnvs`) in `values-otel-collector-agent.yaml` and
-   `values-otel-collector-gateway.yaml`, and `forge_site` in `values-kube-prometheus-stack.yaml`
-   (`prometheus.externalLabels`) → the new site name (e.g. `nvcert`).
-2. **The two VIPs** — pick two free IPs from that site's MetalLB pool for `otel-receiver.forge` and
-   `grafana.forge`, and update: the LB annotation in `values-otel-collector-gateway.yaml` (`.30`), the
-   Grafana LB in `values-kube-prometheus-stack.yaml` (`.31`), the site's `metallb-config.*.yaml` (add the
-   range), and the site's unbound `localData` (`otel-receiver.forge`/`grafana.forge` records).
+```bash
+OTEL_SITE_NAME=<site> GRAFANA_VIP=<ip> [OTEL_RECEIVER_VIP=<ip> WITH_DPU=true] ./deploy-observability.sh
+```
+
+(`launchpad-nvcert/install-all.sh` phase 8 does exactly this with the site's name and the `.30`/`.31`
+VIPs from `vip-pool-observability`.) Still per-site outside this folder:
+
+1. **MetalLB** — the two VIPs must exist in the site's `metallb-config.*.yaml` (a dedicated
+   `vip-pool-observability` range keeps them clear of the nico VIPs).
+2. **unbound `localData`** — `grafana.forge` / `otel-receiver.forge` records pointing at those VIPs.
 3. **Storage size** — optional; leave 50Gi unless the site's disk differs.
+
+Dashboards: any `dashboards/*.json` in this folder is applied as a `grafana_dashboard`-labeled
+ConfigMap (phase 6b) and auto-loaded by the Grafana sidecar.
 
 Everything else is identical across forge sites: the mTLS chain (`site-issuer`/`site-root` == the DPU's
 `ca.pem`), the collector configs/pipelines, the Loki/kps values, and

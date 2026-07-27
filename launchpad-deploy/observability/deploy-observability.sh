@@ -20,6 +20,15 @@
 #   WITH_DPU=true ./deploy-observability.sh   # + phase 5: DPU OTLP/mTLS gateway (see the mTLS check below)
 #
 # Env overrides: CA_SRC_NS (default nico-rest), LOKI_CHART_VER, OTEL_CHART_VER, KPS_CHART_VER
+#
+# Replicate-to-another-site knobs (README "Replicate to another site") — the values files keep
+# the launchpad-validated values; these override them per-site at helm time, so nvcert/dev7
+# installs need ONLY these three:
+#   OTEL_SITE_NAME     forge_site label on every log line and metric. Default: launchpad
+#   GRAFANA_VIP        MetalLB VIP for Grafana.               Default: 172.16.2.31
+#   OTEL_RECEIVER_VIP  MetalLB VIP for the DPU OTLP gateway.  Default: 172.16.2.30 (WITH_DPU only)
+# Remember: the VIPs must exist in the site's MetalLB pool (+ unbound localData for the
+# grafana.forge / otel-receiver.forge names).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -27,6 +36,9 @@ CA_SRC_NS="${CA_SRC_NS:-nico-rest}"
 LOKI_CHART_VER="${LOKI_CHART_VER:-5.15.0}"
 KPS_CHART_VER="${KPS_CHART_VER:-59.1.0}"
 OTEL_CHART_VER="${OTEL_CHART_VER:-0.106.0}"   # opentelemetry-collector chart; ships a <=0.106 image (has loki exporter)
+OTEL_SITE_NAME="${OTEL_SITE_NAME:-launchpad}"
+GRAFANA_VIP="${GRAFANA_VIP:-172.16.2.31}"
+OTEL_RECEIVER_VIP="${OTEL_RECEIVER_VIP:-172.16.2.30}"
 
 need() { command -v "$1" >/dev/null || { echo "ERROR: '$1' not found" >&2; exit 1; }; }
 need kubectl; need helm
@@ -44,9 +56,13 @@ echo "==> [3/9] Loki (single-binary, local-path 50Gi)"
 helm upgrade --install loki grafana/loki --version "$LOKI_CHART_VER" -n loki \
   -f "$DIR/values-loki.yaml" --wait --timeout 300s
 
-echo "==> [4/9] OTEL collector AGENT (DaemonSet: all pod logs -> Loki)"
+echo "==> [4/9] OTEL collector AGENT (DaemonSet: all pod logs -> Loki, forge_site=${OTEL_SITE_NAME})"
+# extraEnvs[0] is OTEL_SITE_NAME in the values file; the index-targeted override is the
+# documented per-site knob ("change ONLY this value").
 helm upgrade --install otel-agent open-telemetry/opentelemetry-collector --version "$OTEL_CHART_VER" -n otel \
-  -f "$DIR/values-otel-collector-agent.yaml" --wait --timeout 300s
+  -f "$DIR/values-otel-collector-agent.yaml" \
+  --set-string "extraEnvs[0].value=${OTEL_SITE_NAME}" \
+  --wait --timeout 300s
 
 echo "==> [5/9] ensure prometheus-operator CRDs (chart runs with crds.enabled=false; the cluster may already"
 echo "          have a PARTIAL set owned by helmfile/another manager — so apply only the MISSING ones,"
@@ -64,9 +80,26 @@ for crd in prometheuses alertmanagers prometheusrules servicemonitors podmonitor
 done
 rm -rf "$CRD_TMP"
 
-echo "==> [6/9] kube-prometheus-stack (Prometheus + Grafana [anonymous Admin, no login] at grafana.forge 172.16.2.31)"
+echo "==> [6/9] kube-prometheus-stack (Prometheus + Grafana [anonymous Admin, no login] at grafana.forge ${GRAFANA_VIP})"
 helm upgrade --install obs prometheus-community/kube-prometheus-stack \
-  --version "$KPS_CHART_VER" -n monitoring -f "$DIR/values-kube-prometheus-stack.yaml" --wait --timeout 600s
+  --version "$KPS_CHART_VER" -n monitoring -f "$DIR/values-kube-prometheus-stack.yaml" \
+  --set-string "prometheus.prometheusSpec.externalLabels.forge_site=${OTEL_SITE_NAME}" \
+  --set-string "grafana.service.annotations.metallb\.universe\.tf/loadBalancerIPs=${GRAFANA_VIP}" \
+  --wait --timeout 600s
+
+echo "==> [6b/9] Grafana dashboards (ConfigMaps labeled grafana_dashboard — the sidecar auto-loads them)"
+if compgen -G "$DIR/dashboards/*.json" >/dev/null; then
+  for dash in "$DIR"/dashboards/*.json; do
+    name="dash-$(basename "$dash" .json)"
+    kubectl create configmap "$name" -n monitoring \
+      --from-file="$(basename "$dash")=$dash" \
+      --dry-run=client -o yaml | kubectl label -f - --local --dry-run=client -o yaml \
+      grafana_dashboard=1 | kubectl apply -f -
+    echo "    dashboard: $name"
+  done
+else
+  echo "    (no dashboards/*.json yet)"
+fi
 
 if [ "${WITH_DPU:-false}" = "true" ]; then
   echo "==> [7/9] DPU mTLS pre-flight. VERIFIED live on DPU 172.16.2.76 (2026-07-15): the DPU's"
@@ -82,9 +115,12 @@ if [ "${WITH_DPU:-false}" = "true" ]; then
   #   kubectl -n otel delete secret otel-receiver-tls --ignore-not-found )
   kubectl wait --for=condition=Ready certificate/otel-receiver-tls -n otel --timeout=120s
 
-  echo "==> [9/9] OTEL collector GATEWAY (Deployment: OTLP/mTLS on 172.16.2.30:443 -> Loki + Prometheus)"
+  echo "==> [9/9] OTEL collector GATEWAY (Deployment: OTLP/mTLS on ${OTEL_RECEIVER_VIP}:443 -> Loki + Prometheus)"
   helm upgrade --install otel-collector-gateway open-telemetry/opentelemetry-collector --version "$OTEL_CHART_VER" -n otel \
-    -f "$DIR/values-otel-collector-gateway.yaml" --wait --timeout 300s
+    -f "$DIR/values-otel-collector-gateway.yaml" \
+    --set-string "extraEnvs[0].value=${OTEL_SITE_NAME}" \
+    --set-string "service.annotations.metallb\.universe\.tf/loadBalancerIPs=${OTEL_RECEIVER_VIP}" \
+    --wait --timeout 300s
 else
   echo "==> [7/9] DPU gateway SKIPPED (set WITH_DPU=true — the DPU otelcol trusts site-root; our cert uses site-issuer)"
 fi
