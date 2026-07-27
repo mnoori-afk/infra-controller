@@ -122,14 +122,42 @@ factory. (Source: `launchpad-bringup/DPU-MODE-RESEARCH-CODE.md`.)
 
 Two things you DO need to handle:
 
-**a. Power on all DPU BMCs** (BlueField OpenBMC — separate from the tray AMI MegaRAC BMC).
+**a. Check and switch BlueField hardware mode to DPU mode (per tray — NOT done by NICo):**
+
+On launchpad, all 18 BF3s shipped in **NIC mode** from the factory (confirmed in
+`launchpad-bringup/GB300-INGESTION-ISSUE-LOG.md`). Each one needed to be switched.
+
+First, check the current mode of each DPU BMC (`root` / `<dpu-bmc-password>`):
+```bash
+curl -sk -u root:<dpu-bmc-password> \
+  https://<DPU_BMC_IP>/redfish/v1/Systems/Bluefield/Oem/Nvidia | python3 -m json.tool | grep '"Mode"'
+# "Mode": "NicMode"  →  needs switching
+# "Mode": "DpuMode"  →  already correct, skip
+```
+
+If in NicMode, stage the switch via the DPU BMC Redfish:
+```bash
+curl -sk -u root:<dpu-bmc-password> -H "Content-Type: application/json" \
+  -X POST -d '{"Mode":"DpuMode"}' \
+  https://<DPU_BMC_IP>/redfish/v1/Systems/Bluefield/Oem/Nvidia/Actions/Mode.Set
+```
+
+Then apply the firmware reset per tray from the host (Grace host OS, once it's accessible):
+```bash
+mlxfwreset -d /dev/mst/mt41692_pciconf0 -l 4 r
+```
+followed by a host cold power-cycle. NICo stages the Redfish Mode.Set during ingestion,
+but the hardware transition requires this `mlxfwreset` step — it is NOT done by NICo
+automatically. Repeat for all 18 trays. (Source: `launchpad-bringup/DEPLOY-GUIDE.md §7`)
+
+**b. Power on all DPU BMCs** (BlueField OpenBMC — separate from the tray AMI MegaRAC BMC).
 DPU BMCs get their own DHCP leases from the `.50-.250` pool (MAC OUI `e0:9d:73:*`, hostname
 `dpu-bmc` in kea leases). Confirm they have IPs before loading expected-machines — NICo needs
 to reach the DPU BMC via Redfish to detect/set mode and to associate the DPU to its host.
 Also seed **DPU BMC credentials** in Vault (`root` / `<dpu-bmc-password>`) — site-explorer
 reads these from Vault when calling the DPU BMC Redfish.
 
-**b. `fallback_dpu_serial_numbers` — required on GB300 Lenovo (the critical step):**
+**c. `fallback_dpu_serial_numbers` — required on GB300 Lenovo (the critical step):**
 The GB300 Lenovo host BMC returns `null` for the BlueField `NetworkAdapter.SerialNumber`.
 NICo associates host↔DPU by serial number match; without the fallback, it always logs
 `"sees no DPUs on this host"` and the machine stays Unlinked indefinitely.
