@@ -48,6 +48,7 @@ mod auth;
 pub mod bootstrap;
 pub mod cfg;
 mod compat;
+mod created_to_ready_hook;
 mod credentials;
 mod db_init;
 mod dhcp;

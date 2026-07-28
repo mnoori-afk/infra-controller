@@ -123,6 +123,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_ipmi_commands_total</td><td>counter</td><td>Number of IPMI command executions, by command and outcome.</td></tr>
 <tr><td>carbide_kms_token_maintenance_failures_total</td><td>counter</td><td>Number of Transit KMS token maintenance failures, by maintenance stage</td></tr>
 <tr><td>carbide_log_events_total</td><td>counter</td><td>Number of log events emitted, by level and component. The always-on log-volume and error-rate signal for every binary.</td></tr>
+<tr><td>carbide_machine_created_to_ready_duration_seconds</td><td>histogram</td><td>Wall-clock time from machine-row creation to an entry into the Ready state, in seconds</td></tr>
 <tr><td>carbide_machine_dpu_info</td><td>gauge</td><td>Association between a host machine and one of its DPUs. Exposed only on the opt-in per-object endpoint.</td></tr>
 <tr><td>carbide_machine_identity_token_exchange_failures_total</td><td>counter</td><td>Number of machine identity token exchange failures, by failure stage</td></tr>
 <tr><td>carbide_machine_instance_info</td><td>gauge</td><td>Association between a host machine and its tenant instance. Exposed only on the opt-in per-object endpoint.</td></tr>
