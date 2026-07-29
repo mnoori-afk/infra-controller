@@ -28,8 +28,6 @@ pub struct StateChangeEvent<'a, Id, S> {
     /// The ID of the object that changed state.
     pub object_id: &'a Id,
     /// The state before the transition (if known).
-    #[cfg(any(test, feature = "test-support"))]
-    // not used by any hooks yet, only used in tests
     pub previous_state: Option<&'a S>,
     /// The new state after the transition.
     pub new_state: &'a S,

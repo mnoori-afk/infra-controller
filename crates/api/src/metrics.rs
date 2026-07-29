@@ -61,6 +61,14 @@ pub(crate) fn setup_metrics(spancount_reader: Option<SpanCountReader>) -> eyre::
         .with_view(carbide_site_explorer::site_explorer_latency_histogram_view(
             "carbide_endpoint_exploration_duration",
         )?)
+        .with_view(state_dwell_seconds_view("*_time_in_state")?)
+        .with_view(state_handler_latency_milliseconds_view(
+            "*_handler_latency_in_state",
+        )?)
+        // Event-derive strips the unit suffix from the instrument name.
+        .with_view(state_dwell_seconds_view(
+            "carbide_machine_created_to_ready_duration",
+        )?)
         .build();
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
@@ -89,6 +97,42 @@ fn retry_histogram_view(name_filter: &'static str) -> carbide_metrics_utils::Res
         Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram),
         opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
             boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
+            record_min_max: true,
+        },
+    )
+}
+
+/// Configures a View for the state controllers' time-in-state histograms
+/// (seconds). State dwell ranges from seconds to hours; the default buckets
+/// stop resolving exactly in the 1–30 minute band where most ingestion stages
+/// live, so use boundaries that cover seconds through two hours.
+fn state_dwell_seconds_view(name_filter: &'static str) -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        name_filter,
+        Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram),
+        opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
+            boundaries: vec![
+                1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, 7200.0,
+            ],
+            record_min_max: true,
+        },
+    )
+}
+
+/// Configures a View for the state controllers' handler-latency histograms
+/// (milliseconds). Handler invocations range from milliseconds to the
+/// max-object-handling timeout (minutes), which the default buckets cut off
+/// at 10 seconds.
+fn state_handler_latency_milliseconds_view(
+    name_filter: &'static str,
+) -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        name_filter,
+        Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram),
+        opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
+            boundaries: vec![
+                10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 15000.0, 30000.0, 60000.0,
+            ],
             record_min_max: true,
         },
     )
@@ -145,6 +189,13 @@ mod tests {
                     "carbide_endpoint_exploration_duration",
                 )
                 .unwrap(),
+            )
+            .with_view(state_dwell_seconds_view("*_time_in_state").unwrap())
+            .with_view(
+                state_handler_latency_milliseconds_view("*_handler_latency_in_state").unwrap(),
+            )
+            .with_view(
+                state_dwell_seconds_view("carbide_machine_created_to_ready_duration").unwrap(),
             )
             .build();
 

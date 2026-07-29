@@ -794,9 +794,29 @@ async fn process_object<IO: StateControllerIO>(
 
     // Emit the state changed event to registered hooks
     if let Some(next_state) = &metrics.common.next_state {
+        // One structured line per committed transition, carrying the object id
+        // and the dwell time in the state being left. Aggregate dwell lives in
+        // the *_time_in_state histogram; this line is the per-object record
+        // (object ids are too high-cardinality for metric labels).
+        let (from_state, from_substate) = metrics
+            .common
+            .initial_state
+            .as_ref()
+            .map(IO::metric_state_names)
+            .unwrap_or(("unknown", ""));
+        let (to_state, to_substate) = IO::metric_state_names(next_state);
+        tracing::info!(
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            %object_id,
+            from_state,
+            from_substate,
+            to_state,
+            to_substate,
+            dwell_ms = metrics.common.time_in_state.as_millis() as u64,
+            "state_transition_committed"
+        );
         state_change_emitter.emit(StateChangeEvent {
             object_id: &object_id,
-            #[cfg(any(test, feature = "test-support"))]
             previous_state: metrics.common.initial_state.as_ref(),
             new_state: next_state,
             timestamp: chrono::Utc::now(),

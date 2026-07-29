@@ -1093,6 +1093,12 @@ async fn initialize_and_start_controllers<'a>(
     let state_change_emitter = {
         let mut emitter_builder = StateChangeEmitterBuilder::default();
 
+        // Ingestion benchmarking (#3738): created->Ready duration, recorded
+        // post-commit so rolled-back transitions never observe.
+        emitter_builder = emitter_builder.hook(Box::new(
+            crate::created_to_ready_hook::CreatedToReadyMetricHook::new(db_pool.clone()),
+        ));
+
         if let Some(ref config) = carbide_config.dsx_exchange_event_bus
             && config.enabled
         {
