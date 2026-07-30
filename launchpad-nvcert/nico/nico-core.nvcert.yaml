@@ -255,7 +255,10 @@ nico-api:
 
       [nvlink_config]
       enabled = true
-
+      # allow_insecure is REQUIRED by the pr-503 NvLinkConfig struct (the only field with no serde
+      # default — crates/nvlink-manager/src/config.rs). Omitting it crashes nico-api at startup:
+      # "missing field `allow_insecure` for key default.nvlink_config". false = verify NMX-C TLS.
+      allow_insecure = false
 
       # --- Rack + Component-Manager config (NVL72_GB300 — same BOM as launchpad).
       # NOTE: profile name MUST be NVL72_GB300 (not NVL72_300 etc.) else the power_shelf_backend="rms"
