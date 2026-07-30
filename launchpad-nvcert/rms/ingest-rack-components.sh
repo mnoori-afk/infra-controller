@@ -71,16 +71,45 @@ add_shelves() {
   done
 }
 
+# Component BMC IPs (from inventory.md). Needed for the refresh loop below.
+SWITCH_IPS="172.16.2.77 172.16.2.76 172.16.2.79 172.16.2.63 172.16.2.82 172.16.2.70 172.16.2.75 172.16.2.78 172.16.2.73"
+SHELF_IPS="172.16.2.71 172.16.2.80 172.16.2.81 172.16.2.74 172.16.2.72 172.16.2.68"
+PG="${PG:-nico-pg-cluster-0}"
+
+# Declaring an expected-switch/shelf is NOT enough — the real switch/power_shelf object is
+# only materialized when site-explorer creates it during a cycle where the BMC is freshly
+# explored. A single `site-explorer refresh` per component is unreliable, AND:
+#   - power_shelves_created_per_run = 1  → only ONE shelf materializes per cycle (they trickle in)
+#   - power-shelf BMCs reset during credential rotation → need a SECOND exploration after reset
+# So we loop: refresh every BMC, wait, re-check, repeat until switches=9 and power_shelves=6.
+_count() { kubectl -n postgres exec "$PG" -- su postgres -c \
+  "psql -d nico_system_nico -tAc \"SELECT count(*) FROM $1\"" 2>/dev/null | tr -d '[:space:]'; }
+
+refresh_until_materialized() {
+  echo "== refreshing BMCs until all objects materialize (switches=9, power_shelves=6) =="
+  for pass in $(seq 1 10); do
+    for ip in $SWITCH_IPS $SHELF_IPS; do
+      "${AC[@]}" site-explorer refresh "$ip" >/dev/null 2>&1 && printf '.'
+      sleep 3
+    done
+    sw=$(_count switches); ps=$(_count power_shelves)
+    echo " | pass $pass: switches=$sw/9 power_shelves=$ps/6"
+    [ "$sw" = "9" ] && [ "$ps" = "6" ] && { echo "ALL MATERIALIZED"; return 0; }
+    sleep 30
+  done
+  echo "WARNING: not fully materialized after 10 passes — re-run, or refresh the lagging BMC IPs individually."
+}
+
 case "${1:-all}" in
   switches) add_switches ;;
   shelves)  add_shelves ;;
-  all)      add_switches; echo; add_shelves ;;
-  *) echo "usage: $0 [all|switches|shelves]"; exit 1 ;;
+  refresh)  refresh_until_materialized ;;
+  all)      add_switches; echo; add_shelves; echo; refresh_until_materialized ;;
+  *) echo "usage: $0 [all|switches|shelves|refresh]"; exit 1 ;;
 esac
 
 echo ""
 echo "== verify =="
-echo "  ${AC[*]} expected-switch show"
-echo "  ${AC[*]} expected-power-shelf show"
-echo "  ${AC[*]} rack show                 # nvcert-r1 should now exist"
-echo "  kubectl -n rack-manager logs deploy/rms-api-server | grep BatchGetPowerState"
+echo "  ${AC[*]} rack show                 # want: Switches 9, Power Shelves 6"
+echo "  ${AC[*]} expected-switch show ; ${AC[*]} expected-power-shelf show"
+echo "  kubectl -n rack-manager logs deploy/rms-api-server | grep BatchGetPowerState  # 200, peer CN=nico-api"

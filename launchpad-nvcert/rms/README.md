@@ -98,13 +98,26 @@ kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli ex
 # rack should now materialize:
 kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli rack show   # nvcert-r1
 
-# then the remaining 8 switches + all 6 power shelves:
-./ingest-rack-components.sh            # or: switches | shelves
+# then the remaining 8 switches + all 6 power shelves, AND the iterative refresh:
+./ingest-rack-components.sh            # add all + refresh-until-materialized (or: switches|shelves|refresh)
 ```
 
 Creds (verified): NVLink switch BMC `root`/`Buynvidia2026!`, NVOS `admin`/`Buynvidia2026!`;
 power-shelf BMC `root`/`0penBmc` (NOT launchpad's password). NVOS MACs = `60:5e:65:*`
 (docs; not DHCP-leased pre-ingestion, which is fine — NICo only needs the MAC to match).
+
+### IMPORTANT — declaring is not enough; you must refresh iteratively
+An `expected-switch`/`expected-power-shelf` is only a declaration. The real `switches` /
+`power_shelves` object is materialized when site-explorer creates it during a cycle where
+the BMC is **freshly explored**. A single `site-explorer refresh` per component is
+unreliable, and two throttles apply:
+- `power_shelves_created_per_run = 1` → only **one** power shelf materializes per cycle (they trickle in)
+- power-shelf BMCs **reset during credential rotation** → each needs a *second* exploration after it comes back
+
+So loop: `refresh` every component BMC, wait, re-check `SELECT count(*) FROM switches/power_shelves`,
+repeat until switches=9 and power_shelves=6. `ingest-rack-components.sh` does this automatically
+(the `refresh` action); or run it by hand per lagging IP. First materialization can take several
+minutes for the shelves because of the per-run=1 cap.
 
 ### Verify + next
 ```bash
