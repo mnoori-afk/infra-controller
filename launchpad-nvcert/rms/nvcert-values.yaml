@@ -1,0 +1,97 @@
+# RMS (Rack Manager Service) Helm values for the nvcert GB300 site.
+# Copy of the launchpad RMS values (launchpad-bringup/RMS/launchpad-values.yaml),
+# with ONLY the image tag changed to the nvcert target build.
+#
+# Deploy from the rackmanagementservice repo (chart ./helm), after checking out the
+# matching commit so the chart and image line up:
+#   cd <rackmanagementservice>
+#   git checkout 8e7aaf0                       # v0.9.0-dev1-116-g8e7aaf0, chart 0.9.0-dev.27
+#   helm upgrade --install rack-manager ./helm \
+#     -f <infra-controller-core>/launchpad-nvcert/rms/nvcert-values.yaml -n rack-manager
+#
+# Prereqs (see launchpad-nvcert/rms/README.md):
+#   - namespace rack-manager
+#   - Certificate rms-api-server-certificate (vault-nico-issuer) → secret same name
+#   - imagepullsecret in rack-manager scoped to nvcr.io/nvidian/dcim (NOT the
+#     nico-system carbide-dev secret — that 401s here)
+
+nameOverride: ""
+fullnameOverride: ""
+
+namespace: rack-manager
+createNamespace: false
+
+global:
+  image:
+    # nvcert target build. CI appends the arch suffix; Grace CP nodes are aarch64 but the
+    # RMS pod runs on the x86 site-controllers... nvcert CP nodes are the k8s hosts — the
+    # launchpad image was -amd64. VERIFY the tag/arch is pullable before deploy:
+    #   the rms-api-server pod scheduling node arch decides amd64 vs arm64.
+    tag: "v0.9.0-dev1-116-g8e7aaf0-amd64"
+    pullPolicy: Always
+  imagePullSecrets:
+    - name: "imagepullsecret"     # list of MAPS — a list of strings breaks server-side apply
+
+# Ephemeral in-memory store (same as launchpad). State is lost on RMS restart, but NICo
+# re-drives it every site-explorer cycle, so it is fine for bring-up. Move to external
+# Postgres later if persistence is needed.
+databaseMode: memory
+dropDatabaseOnUninstall: false
+
+apiServer:
+  enabled: true
+  image:
+    repository: nvcr.io/nvidian/dcim/rms-api
+    pullPolicy: ""
+  replicaCount: 1
+  port: 8801
+  firmwareStoragePath: /mnt/data
+  firmwareMountPath: /mnt/firmware
+  environmentPath: local-dev
+  # Keep server-side mTLS ON (production posture). NICo (nico-api) presents its vault-nico
+  # client cert; RMS's --tls-ca is the same vault-nico CA, so mTLS succeeds both ways.
+  allowInsecure: false
+  # RMS->switch (outbound NVUE/NMX-C) client mTLS OFF for now — same as launchpad. Turn this
+  # off-switch to false and populate clientTlsCertificates when RMS starts driving the NVLink
+  # switches with verified TLS.
+  insecureSwitch: true
+
+  switchCertRoot: /var/run/secrets/switch-cert
+  switchCertCertificates: []
+  clientTlsRoot: /var/run/secrets/client-tls
+  clientTlsCertificates: []
+  defaultSwitchDomain: ""
+  dnsDomain: ""
+
+  tls:
+    enabled: true
+    secretMountPath: /var/run/secrets/rms-api
+    existingSecret: "rms-api-server-certificate"   # cert-manager secret from vault-nico-issuer
+    cert: ""
+    key: ""
+    caEnabled: true                                # require client cert => mTLS
+    ca: ""
+  serviceMonitor:
+    enabled: true
+    prometheus: ""
+
+# No in-cluster Postgres (memory mode).
+postgres:
+  enabled: false
+
+# External-DB helpers unused in memory mode.
+rmsPostgres:
+  externalSecret:
+    enabled: false
+  patchForgeCluster:
+    enabled: false
+
+grafana:
+  dashboard:
+    enabled: false
+    namespace: ""
+    label: grafana_dashboard
+    labelValue: "1"
+    folder: "RackManagement"
+
+commonLabels: {}

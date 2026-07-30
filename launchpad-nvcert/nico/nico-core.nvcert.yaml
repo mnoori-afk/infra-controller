@@ -9,8 +9,8 @@
 
 global:
   image:
-    repository: ""    # set via --set (NICO_IMAGE_REGISTRY)/nvmetal-carbide
-    tag: ""           # set via --set (NICO_CORE_IMAGE_TAG)
+    repository: "nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide"    # set via --set (NICO_IMAGE_REGISTRY)/nvmetal-carbide
+    tag: "v2.0.0-pr-503-g49a48a69d"           # set via --set (NICO_CORE_IMAGE_TAG)
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: imagepullsecret
@@ -32,15 +32,9 @@ nico-api:
   # This goes into the TLS certificate SAN — agents/DPUs use it to verify the server cert.
   # Pattern from launchpad: "api-launchpad.nvidialaunchpad.internal". Ask the team what they
   # are calling this cluster (the Teleport kube context name is usually a good hint).
-  hostname: "FILL_ME.nvidialaunchpad.internal"
-  # Admin web UI auth. MUST stay "none" while Core runs a pr-503-era image: basic auth was
-  # removed in #761 (2026-03) and only re-introduced in #3492 (2026-07-20), but the chart at
-  # main now DEFAULTS webAuth.mode=basic — the pr-503 binary rejects it and crashloops with
-  # 'CARBIDE_WEB_AUTH_TYPE=basic is not supported'. "none" is accepted by all builds; the UI
-  # is only reachable on the mgmt network / via tunnel (same posture as launchpad live).
-  # Revisit (basic/oauth2) after bumping Core to a post-#3492 image.
   webAuth:
     mode: none
+  hostname: "api-gb300-02.nvidialaunchpad.internal" # filled
   auth:
     additionalIssuerCns:
       - "site-root"
@@ -54,7 +48,7 @@ nico-api:
       metallb.universe.tf/loadBalancerIPs: "172.16.2.40"
   certificate:
     extraDnsNames:
-      - "FILL_ME.nvidialaunchpad.internal"   # FILL_ME: must match hostname above
+      - "api-gb300-02.nvidialaunchpad.internal"   # Filled: must match hostname above
       - "carbide-api.forge"
       - "nico-api.forge"
       - "carbide-api.forge-system.svc.cluster.local"
@@ -63,14 +57,15 @@ nico-api:
     nicoApiSiteConfig: |
       # FILL_ME: sitename = the NICo site name (e.g. "rg-forge-<sitename>"). Used in REST registration
       # and nico-api logs. Ask the team for the agreed name for this GB300 cluster.
-      sitename = "FILL_ME"
+      sitename = "rg-forge-gb300-02"  #filled
       # FILL_ME: initial_domain_name = base DNS domain. Affects unbound localData and TLS SANs.
       # Pattern from launchpad: "launchpad.nvidialaunchpad.internal"
-      initial_domain_name = "FILL_ME.nvidialaunchpad.internal"
+      initial_domain_name = "gb300-02.nvidialaunchpad.internal" #filled
       attestation_enabled = true
       max_concurrent_machine_updates = 20
 
       dhcp_servers = ["172.16.2.41"]
+      ntp_servers = ["172.16.2.44","172.16.2.45","172.16.2.46"]
 
       route_servers = []
       enable_route_servers = false
@@ -185,10 +180,14 @@ nico-api:
 
       [machine_validation_config]
       enabled = true
-      # Disable the long DCGM diagnostic (forge_DcgmFullLong): it FAILS on the GB300 trays and
-      # blocks Ready (per Krish 2026-07-03). test_selection_mode defaults to "Default".
+      # Disable the DCGM diagnostics. forge_DcgmFullLong FAILS on the GB300 trays and blocks Ready
+      # (per Krish 2026-07-03). forge_DcgmFullShort FAILS until the NVLink fabric is up (needs RMS +
+      # fabric bring-up, 2026-07-29). MV config runs in EnableAll mode: any test NOT listed here gets
+      # re-enabled on every nico-api restart, so BOTH DCGM entries must stay listed. Re-enable
+      # DcgmFullShort only after the NVLink fabric is programmed. test_selection_mode defaults to "Default".
       tests = [
         { id = "forge_DcgmFullLong", enable = false },
+        { id = "forge_DcgmFullShort", enable = false },
       ]
 
       [bom_validation]
@@ -222,11 +221,9 @@ nico-api:
       type = "integer"
       ranges = [{ start = "4268000000", end = "4268000099" }]  # FILL_ME: confirm with network team
 
-      # Admin segment — DPU-mode hosts allocate their admin/overlay IP from here. Each of the
-      # 18 DPU-mode trays gets one IP, so the pool needs >= 18 free addresses.
-      # Launchpad widened from /29 (only 6 IPs) to /24 after running out. A /25 gives 118
-      # usable addresses after reserve_first=5 — sufficient for 18 trays with headroom.
-      # IMPORTANT: site_fabric_prefixes must NOT overlap this prefix (hard-validated by nico-api).
+      # Placeholder admin segment. nico-api REQUIRES a [networks.admin] block with non-empty
+      # prefix/gateway (else it panics at startup). NIC-mode hosts use HostInband/underlay NOT admin,
+      # so nothing is ever allocated here. Small unused prefix to avoid overlap with real nets.
       [networks.admin]
       type = "admin"
       prefix = "172.16.4.0/25"
@@ -237,8 +234,7 @@ nico-api:
       # Managed-host BMC + host-OOB discovery network (VLAN 200, 172.16.2.0/24). MUST be type=underlay:
       # site-explorer ONLY scans underlay segments; it explicitly skips admin/tenant segments.
       # The DHCP relay runs on the mgmt switches (ip-helper -> VIP .41); its giaddr (a switch SVI in
-      # 172.16.2.0/24 — launchpad sees .4/.5) matches this segment by subnet membership (ip <<= prefix),
-      # so ANY 172.16.2.x giaddr works — no exact-gateway requirement.
+      # 172.16.2.0/24) matches this segment by subnet membership (ip <<= prefix) — any 172.16.2.x giaddr works.
       # reserve_first=50 fences node statics (.11-.23) + MetalLB VIPs (.40-.49) off the lease pool (.50-.250).
       [networks.nvcert-mgmt]
       type = "underlay"
@@ -256,6 +252,10 @@ nico-api:
 
       [machine_state_controller]
       failure_retry_time = "90m"
+
+      [nvlink_config]
+      enabled = true
+
 
       # --- Rack + Component-Manager config (NVL72_GB300 — same BOM as launchpad).
       # NOTE: profile name MUST be NVL72_GB300 (not NVL72_300 etc.) else the power_shelf_backend="rms"
@@ -304,8 +304,8 @@ nico-dhcp:
     annotations:
       metallb.universe.tf/loadBalancerIPs: "172.16.2.41"
   # DHCP relay is on the mgmt switches (ip-helper -> .41), so kea can schedule on ANY node.
-  # ONLY IF you fall back to a node-hosted isc-dhcp-relay (launchpad-deploy/DHCP-RELAY.md §4),
-  # pin kea off that node (same-node relay->VIP goes deaf) — see README "DHCP relay" section.
+  # ONLY IF you fall back to a node-hosted isc-dhcp-relay, pin kea off that node (same-node
+  # relay->VIP goes deaf) — see launchpad-deploy/DHCP-RELAY.md and README "DHCP relay".
   config:
     kea:
       hookParameters:
@@ -448,7 +448,8 @@ unbound:
       addresses: ["172.16.2.44", "172.16.2.45", "172.16.2.46"]
     - name: unbound.forge
       addresses: ["172.16.2.42"]
-    # observability (install-all.sh phase 8; same VIP map as launchpad)
+    # observability (install-all.sh phase 8; same VIP map as launchpad). Only resolved/used
+    # once the observability stack is deployed — harmless local-data entries otherwise.
     - name: grafana.forge
       addresses: ["172.16.2.31"]
     - name: otel-receiver.forge
