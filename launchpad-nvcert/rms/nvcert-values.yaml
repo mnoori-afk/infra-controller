@@ -41,7 +41,10 @@ dropDatabaseOnUninstall: false
 apiServer:
   enabled: true
   image:
-    repository: nvcr.io/nvidian/dcim/rms-api
+    # The v0.9.0-dev1-116-g8e7aaf0 build was NOT published to nvcr.io/nvidian/dcim (that path caps
+    # at dev1-64). It lives in the DSX mirror under org 0837451325059433/components-dev. That org is
+    # served by the nico-system-style carbide-dev/components-dev pull secret, NOT the nvidian/dcim one.
+    repository: nvcr.io/0837451325059433/components-dev/rms-api
     pullPolicy: ""
   replicaCount: 1
   port: 8801

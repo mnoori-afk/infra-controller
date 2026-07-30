@@ -28,11 +28,16 @@ export KUBECONFIG=$HOME/.kube/launchpad-nvcert.config   # context nv-stg-dgxc.te
 kubectl create namespace rack-manager
 kubectl apply -f launchpad-nvcert/rms/rms-api-server-certificate.yaml
 kubectl -n rack-manager wait --for=condition=Ready certificate/rms-api-server-certificate --timeout=120s
-# pull secret must be nvidian/dcim-scoped (nico-system/imagepullsecret is carbide-dev → 401):
-kubectl -n rack-manager apply -f image_pull_secret_rms.yaml      # reuse launchpad's dcim secret
-#   fallback if the token is dead:
-#   kubectl -n rack-manager create secret docker-registry imagepullsecret \
-#     --docker-server=nvcr.io --docker-username='$oauthtoken' --docker-password='<NGC nvidian/dcim token>'
+# PULL SECRET — the v0.9.0-dev1-116-g8e7aaf0 image lives in the DSX mirror
+# nvcr.io/0837451325059433/components-dev/rms-api (NOT nvidian/dcim, which caps at dev1-64).
+# That org is served by the carbide-dev/components-dev-scoped secret == nico-system/imagepullsecret.
+# Copy it into rack-manager under the name `imagepullsecret` (what the values reference):
+kubectl -n nico-system get secret imagepullsecret -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/rms-dcfg.json
+kubectl -n rack-manager delete secret imagepullsecret --ignore-not-found
+kubectl -n rack-manager create secret generic imagepullsecret \
+  --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson=/tmp/rms-dcfg.json
+rm -f /tmp/rms-dcfg.json
+# The launchpad image_pull_secret_rms.yaml (nvidian/dcim) does NOT work for this build.
 ```
 
 ### 2. Vault policy — racks* paths (enables `cm update-firmware --access-token`)
