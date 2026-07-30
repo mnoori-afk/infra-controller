@@ -70,15 +70,50 @@ kubectl -n nico-system logs deploy/nico-api --since=10m | grep -iE "rms|rack-man
 kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli rack list
 ```
 
-## Follow-up (after RMS is healthy) — rack + NVLink switch ingestion
-- POST expected-rack: org `ncx`, siteId `30b7f861-2b28-4da7-89b1-94d0e984457a`,
-  rackProfileId `NVL72_GB300`, rackId **`nvcert-r1`**
-- POST expected-switch per NVLink switch (9): BMC MACs from
-  `../../launchpad-nvcert-docs/nvlink-management.md` — VERIFY against the ToR `bridge fdb show`
-  first (on launchpad the portal MACs were wrong). NVOS `admin`/`Buynvidia2026!`,
-  BMC `root`/`Buynvidia2026!`; patch nvos-mac-address per switch (admin-cli, bug workaround)
-- POST expected-power-shelf (6): BMC `root`/`0penBmc`
-- Then NVLink fabric bring-up → re-enable `forge_DcgmFullShort` in `../nico/nico-core.nvcert.yaml`
+## Rack component ingestion (materializes the rack → engages RMS)
+
+State so far: RMS is deployed + healthy; the rack `nvcert-r1` exists as an `expected_rack`
+(REST + Core), the 18 host machines are tagged `rack_id='nvcert-r1'`, but the `racks` row
+is still empty and `rack show` says "No racks found". That's expected: the `racks` row is
+created by **`ensure_rack_exists`**, which only fires when site-explorer *creates* a
+component (switch / power-shelf / new host) carrying a `rack_id`. The already-created hosts
+don't re-trigger it — **ingesting the switches + power shelves is the trigger.**
+
+All hardware is verified in **`inventory.md`** (docs + ToR fdb + DHCP leases + BMC Redfish;
+schema/creds confirmed against the working launchpad deploy). Ingest via admin-cli
+(writes to Core `expected_switches`/`expected_power_shelves`, matching launchpad):
+
+```bash
+export KUBECONFIG=$HOME/.kube/launchpad-nvcert.config
+cd launchpad-nvcert/rms
+
+# validate a single switch first (schema/creds), then do the rest:
+kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli expected-switch add \
+  --bmc-mac-address 20:4d:52:d8:87:fe --bmc-username root --bmc-password 'Buynvidia2026!' \
+  --switch-serial-number MT2544602NNP \
+  --nvos-mac-address 60:5e:65:97:97:5e --nvos-username admin --nvos-password 'Buynvidia2026!' \
+  --rack_id nvcert-r1 --meta-name nvlink-switch-1 \
+  --label site:nvcert --label rack:nvcert-r1 --label manufacturer:NVIDIA --label model:N5500_LD
+
+# rack should now materialize:
+kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli rack show   # nvcert-r1
+
+# then the remaining 8 switches + all 6 power shelves:
+./ingest-rack-components.sh            # or: switches | shelves
+```
+
+Creds (verified): NVLink switch BMC `root`/`Buynvidia2026!`, NVOS `admin`/`Buynvidia2026!`;
+power-shelf BMC `root`/`0penBmc` (NOT launchpad's password). NVOS MACs = `60:5e:65:*`
+(docs; not DHCP-leased pre-ingestion, which is fine — NICo only needs the MAC to match).
+
+### Verify + next
+```bash
+AC="kubectl -n nico-system exec deploy/admincli -- /opt/carbide/carbide-admin-cli"
+$AC rack show ; $AC expected-switch show ; $AC expected-power-shelf show
+kubectl -n rack-manager logs deploy/rms-api-server | grep BatchGetPowerState
+#   want: status 200 / grpc 0, peer_identity="CN=nico-api.nico-system.svc.cluster.local"
+```
+Then NVLink fabric bring-up → re-enable `forge_DcgmFullShort` in `../nico/nico-core.nvcert.yaml`.
 
 ## Gotchas (all hit on launchpad)
 1. `imagePullSecrets` must be a list of **maps** (`- name: imagepullsecret`), not strings — SSA rejects strings.
