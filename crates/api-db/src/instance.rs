@@ -42,8 +42,8 @@ use sqlx::types::Json;
 use crate::db_read::DbReader;
 use crate::operating_system::{self, OperatingSystem as OsRow};
 use crate::{
-    ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
-    instance_address,
+    BIND_LIMIT, ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder,
+    ObjectColumnFilter, instance_address,
 };
 
 #[derive(Copy, Clone)]
@@ -1067,117 +1067,133 @@ pub async fn batch_persist<'a>(
                             vals.power_profile
                     FROM (VALUES ";
 
-    let mut qb = sqlx::QueryBuilder::new(query);
+    // Each VALUES row below binds this many parameters. Postgres caps a single
+    // statement at 65535 bind parameters, so an unchunked INSERT overflows once
+    // `values.len() * BATCH_PERSIST_BINDS_PER_ROW` crosses that cap (~2.3k rows).
+    // A single `--transactional` allocate of 4,500 hosts (126k binds) would fail
+    // outright. Chunk the INSERT into sub-batches of `BIND_LIMIT / binds-per-row`
+    // rows, all issued on the caller's transaction so the write stays
+    // all-or-nothing.
+    const BATCH_PERSIST_BINDS_PER_ROW: usize = 28;
 
-    // Build VALUES clause
-    let mut separated = qb.separated(", ");
-    for value in &values {
-        let mut os_ipxe_script = String::new();
-        let os_user_data = value.config.os.user_data.clone();
-        let mut os_image_id: Option<uuid::Uuid> = None;
-        let operating_system_id = match &value.config.os.variant {
-            OperatingSystemVariant::Ipxe(ipxe) => {
-                os_ipxe_script = ipxe.ipxe_script.clone();
-                None
-            }
-            OperatingSystemVariant::OsImage(id) => {
-                os_image_id = Some(*id);
-                None
-            }
-            OperatingSystemVariant::OperatingSystemId(id) => Some(*id),
-        };
+    let expected_count = values.len() as u64;
+    let mut rows_affected_total: u64 = 0;
 
-        separated.push("(");
-        separated.push_bind_unseparated(value.instance_id);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.machine_id.to_string());
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(operating_system_id);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(os_user_data);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(os_ipxe_script);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(os_image_id);
-        separated.push_unseparated(",");
-        separated
-            .push_bind_unseparated(value.config.os.run_provisioning_instructions_on_every_boot);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.config.tenant.tenant_organization_id.as_str());
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(
-            serde_json::to_string(&value.config.network).unwrap_or_default(),
-        );
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.network_config_version);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(
-            serde_json::to_string(&value.config.infiniband).unwrap_or_default(),
-        );
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.ib_config_version);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(&value.config.tenant.tenant_keyset_ids);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.config.os.phone_home_enabled);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(&value.metadata.name);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(&value.metadata.description);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(
-            serde_json::to_string(&value.metadata.labels).unwrap_or_default(),
-        );
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.config_version);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(&value.config.tenant.hostname);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(&value.config.network_security_group_id);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(&value.instance_type_id);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(
-            serde_json::to_string(&value.config.extension_services).unwrap_or_default(),
-        );
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.extension_services_config_version);
-        separated.push_unseparated(",");
-        separated
-            .push_bind_unseparated(serde_json::to_string(&value.config.nvlink).unwrap_or_default());
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.nvlink_config_version);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(
-            serde_json::to_string(&value.config.spxconfig).unwrap_or_default(),
-        );
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(value.spx_config_version);
-        separated.push_unseparated(",");
-        separated.push_bind_unseparated(&value.config.power_profile);
-        separated.push_unseparated(")");
-    }
+    for chunk in values.chunks(BIND_LIMIT / BATCH_PERSIST_BINDS_PER_ROW) {
+        let mut qb = sqlx::QueryBuilder::new(query);
 
-    qb.push(") AS vals(id, machine_id, operating_system_id, os_user_data, os_ipxe_script, os_image_id,
+        // Build VALUES clause
+        let mut separated = qb.separated(", ");
+        for value in chunk {
+            let mut os_ipxe_script = String::new();
+            let os_user_data = value.config.os.user_data.clone();
+            let mut os_image_id: Option<uuid::Uuid> = None;
+            let operating_system_id = match &value.config.os.variant {
+                OperatingSystemVariant::Ipxe(ipxe) => {
+                    os_ipxe_script = ipxe.ipxe_script.clone();
+                    None
+                }
+                OperatingSystemVariant::OsImage(id) => {
+                    os_image_id = Some(*id);
+                    None
+                }
+                OperatingSystemVariant::OperatingSystemId(id) => Some(*id),
+            };
+
+            separated.push("(");
+            separated.push_bind_unseparated(value.instance_id);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.machine_id.to_string());
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(operating_system_id);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(os_user_data);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(os_ipxe_script);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(os_image_id);
+            separated.push_unseparated(",");
+            separated
+                .push_bind_unseparated(value.config.os.run_provisioning_instructions_on_every_boot);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.config.tenant.tenant_organization_id.as_str());
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(
+                serde_json::to_string(&value.config.network).unwrap_or_default(),
+            );
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.network_config_version);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(
+                serde_json::to_string(&value.config.infiniband).unwrap_or_default(),
+            );
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.ib_config_version);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(&value.config.tenant.tenant_keyset_ids);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.config.os.phone_home_enabled);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(&value.metadata.name);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(&value.metadata.description);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(
+                serde_json::to_string(&value.metadata.labels).unwrap_or_default(),
+            );
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.config_version);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(&value.config.tenant.hostname);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(&value.config.network_security_group_id);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(&value.instance_type_id);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(
+                serde_json::to_string(&value.config.extension_services).unwrap_or_default(),
+            );
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.extension_services_config_version);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(
+                serde_json::to_string(&value.config.nvlink).unwrap_or_default(),
+            );
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.nvlink_config_version);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(
+                serde_json::to_string(&value.config.spxconfig).unwrap_or_default(),
+            );
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(value.spx_config_version);
+            separated.push_unseparated(",");
+            separated.push_bind_unseparated(&value.config.power_profile);
+            separated.push_unseparated(")");
+        }
+
+        qb.push(") AS vals(id, machine_id, operating_system_id, os_user_data, os_ipxe_script, os_image_id,
                        os_always_boot_with_ipxe, tenant_org, network_config, network_config_version,
-                       ib_config, ib_config_version, keyset_ids, os_phone_home_enabled, name, 
+                       ib_config, ib_config_version, keyset_ids, os_phone_home_enabled, name,
                        description, labels, config_version, hostname, network_security_group_id,
                        instance_type_id, extension_services_config, extension_services_config_version,
                        nvlink_config, nvlink_config_version, spx_config, spx_config_version,
                        power_profile)
-            INNER JOIN machines m ON m.id = vals.machine_id 
+            INNER JOIN machines m ON m.id = vals.machine_id
                 AND (vals.instance_type_id IS NULL OR m.instance_type_id = vals.instance_type_id)");
 
-    let result = qb
-        .build()
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::new("batch_persist", e))?;
+        let result = qb
+            .build()
+            .execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::new("batch_persist", e))?;
+
+        rows_affected_total += result.rows_affected();
+    }
 
     // Check if all instances were inserted
     // If instance_type_id doesn't match, the row won't be inserted due to the JOIN condition
-    let expected_count = values.len() as u64;
-    if result.rows_affected() != expected_count {
+    if rows_affected_total != expected_count {
         return Err(DatabaseError::FailedPrecondition(
             "expected InstanceTypeId does not match source machine".to_string(),
         ));
