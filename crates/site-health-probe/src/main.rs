@@ -22,23 +22,33 @@
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the device reader reads with it next")
+    expect(dead_code, reason = "the state readers are wired in later")
 )]
 mod census;
-#[expect(dead_code, reason = "the state readers wire it in")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the state readers are wired in later")
+)]
 mod clock;
 mod config;
 mod framework;
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the state readers call through it next")
+    expect(dead_code, reason = "the state readers are wired in later")
 )]
 mod gate;
 mod logging;
 mod metrics;
-#[expect(dead_code, reason = "the state readers wire it in")]
+#[expect(dead_code, reason = "the state readers are wired in later")]
 mod nico;
 mod probes;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the state readers are wired in later")
+)]
+mod readers;
+#[expect(dead_code, reason = "the state readers are wired in later")]
+mod snapshot;
 
 use std::sync::Arc;
 
