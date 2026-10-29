@@ -551,7 +551,9 @@ impl Sweep<'_> {
         ));
 
         // Unlinked records name why: the explorer's last error for their
-        // address, read only while few records are unlinked.
+        // address, read only while few records are unlinked. The explorer
+        // read only adds detail, so a failed read falls back to `no_device`
+        // instead of holding back the family.
         let unlinked: Vec<&Record> = records.iter().filter(|r| r.devices.is_empty()).collect();
         let explored = if unlinked.len() <= EXPLORED_READ_LIMIT {
             let addresses: Vec<String> = unlinked
@@ -560,7 +562,17 @@ impl Sweep<'_> {
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            Some(self.explored_errors(addresses).await?)
+            match self.explored_errors(addresses).await {
+                Ok(errors) => Some(errors),
+                Err(failure) => {
+                    tracing::warn!(
+                        kind = failure.kind.as_str(),
+                        error = %failure.error,
+                        "explorer read failed, unlinked expected records fall back to no_device"
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
@@ -1704,6 +1716,51 @@ mod tests {
         assert_eq!(
             h.unit(Family::Expected, "ep-2").reason.as_deref(),
             Some("no_device: not_explored")
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_explorer_read_falls_back_to_no_device() {
+        let mut site = small_site();
+        site.expected_switches.push(forge::LinkedExpectedSwitch {
+            explored_endpoint_address: Some("10.9.9.9".to_string()),
+            ..fake::expected_switch(3, None)
+        });
+        site.explored.insert(
+            "10.9.9.9".to_string(),
+            rpc::site_explorer::ExploredEndpoint {
+                address: "10.9.9.9".to_string(),
+                report: Some(rpc::site_explorer::EndpointExplorationReport {
+                    last_exploration_error: Some("Unauthorized".to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        let h = harness(site);
+        // An error answer is not retried, so the one explorer batch fails.
+        h.nico.fail_next(
+            "find_explored_endpoints_by_ids",
+            CallError::Status("Internal: db".to_string()),
+        );
+        h.sweep().await.expect("explorer detail is optional");
+        assert_eq!(
+            h.sink.count(Family::Expected),
+            1,
+            "expected records publish"
+        );
+        assert!(h.sink.failure_kinds(Family::Expected).is_empty());
+        assert_eq!(
+            h.unit(Family::Expected, "es-3").reason.as_deref(),
+            Some("no_device"),
+            "a failed explorer read drops the detail, not the record"
+        );
+
+        // The next sweep reads the explorer again and restores the detail.
+        h.sweep().await.expect("complete sweep");
+        assert_eq!(
+            h.unit(Family::Expected, "es-3").reason.as_deref(),
+            Some("no_device: Unauthorized")
         );
     }
 
