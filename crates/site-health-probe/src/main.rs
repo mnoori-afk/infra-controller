@@ -777,6 +777,68 @@ mod tests {
         drop((sender, reply));
     }
 
+    /// At shutdown, an HTTP/1 client that sent its request and never reads
+    /// the reply, so the server blocks writing a body larger than the socket
+    /// buffers, loses its connection within the drain bound, and the server
+    /// ends on its own.
+    #[tokio::test]
+    async fn api_shutdown_closes_an_http1_connection_that_never_reads() {
+        use tokio::io::AsyncWriteExt;
+
+        let cfg = Config::default();
+        let written = Arc::new(tokio::sync::Notify::new());
+        let router = api::router(api::ApiState::new(
+            Arc::new(state::store::SnapshotStore::new(&cfg.state.paging)),
+            &cfg.state,
+        ))
+        .route(
+            "/test/large",
+            axum::routing::get({
+                let written = Arc::clone(&written);
+                move || async move {
+                    written.notify_one();
+                    vec![b'x'; 64 << 20]
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("address");
+        let stop = CancellationToken::new();
+        let shutdown = ApiShutdown::default();
+        let server = serve_api(listener, router, stop.clone(), shutdown.clone());
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        client
+            .write_all(b"GET /test/large HTTP/1.1\r\nhost: probe\r\n\r\n")
+            .await
+            .expect("request");
+        tokio::time::timeout(Duration::from_secs(5), written.notified())
+            .await
+            .expect("the request reaches its handler");
+        // Let the server fill the socket buffers and block on the write.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        stop.cancel();
+        let started = tokio::time::Instant::now();
+        let joined = drain(server, Duration::from_millis(300), &shutdown).await;
+        assert!(
+            matches!(joined, Ok(Some(Ok(())))),
+            "the server ends once its connections close: {joined:?}"
+        );
+        assert!(
+            shutdown.connections.is_cancelled(),
+            "only closing the connection's I/O ends the blocked write"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(300) + API_CLOSE * 2 + Duration::from_secs(1),
+            "shutdown took {:?}",
+            started.elapsed()
+        );
+        drop(client);
+    }
+
     /// Each enabled reader is built, readiness waits for all of its
     /// families, and only those families' sweep counters start, at 0.
     #[test]
