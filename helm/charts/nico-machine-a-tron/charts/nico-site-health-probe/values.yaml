@@ -52,8 +52,8 @@ api:
 
 serviceMonitor:
   enabled: false
-  ## Also the scrape interval the /v1/summary math assumes. Two intervals
-  ## must fit in the fastest enabled reader interval.
+  ## Two intervals must fit in the fastest enabled reader interval, so
+  ## every sweep lands in at least two scrapes.
   interval: 5s
 
 ## nico-api client certificate (ca.crt, tls.crt, tls.key) for the state
@@ -119,8 +119,8 @@ probes:
         name: ""
         key: "client-secret"
 
-## Site state readers and the /v1 API: counts, units, config and crossing
-## summaries for scale tests. Off by default.
+## Site state readers and the /v1 API: counts, units and config for scale
+## tests. Off by default.
 state:
   enabled: false
   ## The REST site ID of this NICo site.
@@ -164,18 +164,6 @@ state:
       enabled: false
       interval: 120s
       timeout: 600s
-  ## The Prometheus-compatible store /v1/summary reads the probe's series
-  ## from. An empty selector selects this probe by job (the metrics Service
-  ## name) and namespace; a shared store needs both.
-  ## A summary reads its window in one-hour chunks of up to three store
-  ## calls at caps.callsPerSecond, and those calls may take at most half of
-  ## summaryDeadline: 24h fits 90s at 2 calls/s, a longer maxWindow needs a
-  ## longer deadline or a faster gate.
-  metricsStore:
-    url: ""
-    selector: {}
-    maxWindow: 24h
-    summaryDeadline: 90s
   ## A replaced snapshot that a /v1/units cursor points into stays readable
   ## this long for the paging client. Others are dropped when replaced.
   paging:

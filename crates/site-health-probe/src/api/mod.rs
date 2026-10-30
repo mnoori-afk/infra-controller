@@ -17,8 +17,8 @@
 
 //! The `/v1` HTTP API, on its own port. Counts, units and config are
 //! answered from the snapshot store in memory; nothing here calls a site
-//! API. Summaries and the store status read the metrics store. The wire
-//! types and their JSON are `carbide-site-health-probe-api`.
+//! API or the metrics store. The wire types and their JSON are
+//! `carbide-site-health-probe-api`.
 
 pub(crate) mod closable;
 pub(crate) mod spec;
@@ -37,8 +37,8 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use carbide_site_health_probe_api::{
     Component, ConfigResponse, CountResponse, ErrorBody, ErrorCode, ErrorDetail, Family, Filter,
-    ReadInfo, RestResource, RestSiteBinding, Source, StoreStatus, SummaryParams, SummaryResponse,
-    SweepInfo, Unit, UnitType, UnitsQuery, UnitsResponse,
+    ReadInfo, RestResource, RestSiteBinding, Source, SweepInfo, Unit, UnitType, UnitsQuery,
+    UnitsResponse,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -51,20 +51,14 @@ use crate::readers::rest_inventory::{RestTotalsData, SiteMatchData};
 use crate::snapshot::AnySnapshot;
 use crate::state::store::SnapshotStore;
 use crate::state_metrics::{Series, data_of, family_series, gauge_labels, units_of};
-use crate::store::StoreError;
-use crate::summary::{SUMMARY_KEYS, SummaryState, store_status, summarize};
 
 /// Units per page unless the client asks for fewer.
 const DEFAULT_LIMIT: u32 = 100;
 const MAX_LIMIT: u32 = 1_000;
 /// IDs one units query may ask for.
 const MAX_IDS: usize = 10_000;
-/// Seconds a client waits before asking again: for a family with no sweep,
-/// a busy summary or a store that did not answer in time.
+/// Seconds a client waits before asking again for a family with no sweep.
 const RETRY_AFTER_SECONDS: u32 = 10;
-/// What a 502 says about the metrics store. The store error itself is
-/// logged, never served.
-const STORE_UNAVAILABLE: &str = "the metrics store is unavailable";
 
 /// What the API reads.
 pub(crate) struct ApiState {
@@ -75,17 +69,10 @@ pub(crate) struct ApiState {
     /// Each family's reader interval.
     pub intervals: BTreeMap<Family, Duration>,
     pub caps: Capabilities,
-    /// Summaries and the store status. The API runs only with the state
-    /// section on, which requires a metrics store.
-    pub summary: SummaryState,
 }
 
 impl ApiState {
-    pub(crate) fn new(
-        store: Arc<SnapshotStore>,
-        state: &StateConfig,
-        summary: SummaryState,
-    ) -> Self {
+    pub(crate) fn new(store: Arc<SnapshotStore>, state: &StateConfig) -> Self {
         let readers = &state.readers;
         let mut intervals: BTreeMap<Family, Duration> = DEVICE_FAMILIES
             .iter()
@@ -101,7 +88,6 @@ impl ApiState {
             caps: Capabilities {
                 full_host_read: state.nico_api.host_read == HostReadMode::Full,
             },
-            summary,
         }
     }
 
@@ -201,37 +187,10 @@ impl ApiError {
         )
     }
 
-    /// 502 `store_unavailable` or 504 `store_timeout`.
-    pub(crate) fn store(err: StoreError) -> Self {
-        match err {
-            StoreError::Timeout => Self::new(
-                StatusCode::GATEWAY_TIMEOUT,
-                ErrorCode::StoreTimeout,
-                None,
-                "the metrics store did not answer in time".to_string(),
-            ),
-            StoreError::Unavailable(detail) => {
-                tracing::warn!(error = %detail, "metrics store unavailable");
-                Self::new(
-                    StatusCode::BAD_GATEWAY,
-                    ErrorCode::StoreUnavailable,
-                    None,
-                    STORE_UNAVAILABLE.to_string(),
-                )
-            }
-        }
-    }
-
     /// The reply status, for tests.
     #[cfg(test)]
     pub(crate) fn status(&self) -> StatusCode {
         self.status
-    }
-
-    /// The error code, for tests.
-    #[cfg(test)]
-    pub(crate) fn code(&self) -> ErrorCode {
-        self.detail.code
     }
 
     fn snapshot_expired() -> Self {
@@ -246,12 +205,7 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let retry = matches!(
-            self.status,
-            StatusCode::SERVICE_UNAVAILABLE
-                | StatusCode::TOO_MANY_REQUESTS
-                | StatusCode::GATEWAY_TIMEOUT
-        );
+        let retry = self.status == StatusCode::SERVICE_UNAVAILABLE;
         let mut response = (self.status, Json(ErrorBody { error: self.detail })).into_response();
         if retry {
             response
@@ -269,8 +223,6 @@ pub(crate) fn router(state: ApiState) -> Router {
         .route("/v1/units", get(units))
         .route("/v1/units/query", post(units_query))
         .route("/v1/config", get(config))
-        .route("/v1/summary", get(summary))
-        .route("/v1/store-status", get(store_status_route))
         .fallback(not_found)
         .with_state(Arc::new(state))
 }
@@ -636,41 +588,6 @@ async fn config(
         rest: None,
         rest_site,
     }))
-}
-
-async fn summary(
-    State(api): State<Arc<ApiState>>,
-    RawQuery(raw): RawQuery,
-) -> Result<Json<SummaryResponse>, ApiError> {
-    let (query, extras) = split_query(raw.as_deref(), &SUMMARY_KEYS)?;
-    let filter: Filter = parse_query(&query)?;
-    let params = url::form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(&extras)
-        .finish();
-    let params: SummaryParams = parse_query(&params)?;
-    let spec = series_spec(&filter, &api.caps)?;
-    let interval = api.intervals.get(&spec.family).copied().unwrap_or_default();
-    summarize(&api.summary, &spec, &params, interval)
-        .await
-        .map(Json)
-}
-
-async fn store_status_route(
-    State(api): State<Arc<ApiState>>,
-    RawQuery(raw): RawQuery,
-) -> Result<Json<StoreStatus>, ApiError> {
-    let summary = &api.summary;
-    let (query, _) = split_query(raw.as_deref(), &[])?;
-    if !query.is_empty() {
-        return Err(ApiError::bad_param(
-            "query",
-            "/v1/store-status takes no parameters".to_string(),
-        ));
-    }
-    tokio::time::timeout(summary.deadline, store_status(summary))
-        .await
-        .unwrap_or_else(|_| Err(ApiError::store(StoreError::Timeout)))
-        .map(Json)
 }
 
 #[cfg(test)]

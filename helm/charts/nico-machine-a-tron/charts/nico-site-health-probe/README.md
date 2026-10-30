@@ -65,7 +65,7 @@ which this standalone binary is not part of.
 |---|---|---|---|
 | `carbide_site_health_probe_request_duration_milliseconds` | histogram | `api`, `probe`, `operation` | Duration of synthetic probe requests against NICo APIs, by API surface, probe, and operation. SDK default buckets (0 ms – 10 s). |
 | `carbide_site_health_probe_requests_total` | counter | `api`, `probe`, `outcome` | Probe runs by outcome (`success`, `failure`, `timeout`). Timeout is separate from failure: a slow-but-alive API and a down API are different incidents. A call cut at the call timeout, or answered `DEADLINE_EXCEEDED`, counts as `timeout` too. |
-| `carbide_site_health_probe_calls_total` | counter | `api`, `call`, `result` | Calls to each API (`nico-api`, `nico-rest-api`, `metrics-store`) by call and result: `ok`, `timeout` (cut at the call timeout, or answered `DEADLINE_EXCEEDED`), `pushback` (429, 503, `RESOURCE_EXHAUSTED`, `UNAVAILABLE`), `error` (any other failure) and `cancelled`. `cancelled` is a started call whose future was dropped before it returned, by the probe's own timeout or by shutdown. The server may still have finished it. A call still waiting for its turn at the API's gate is not counted. |
+| `carbide_site_health_probe_calls_total` | counter | `api`, `call`, `result` | Calls to each API (`nico-api`, `nico-rest-api`) by call and result: `ok`, `timeout` (cut at the call timeout, or answered `DEADLINE_EXCEEDED`), `pushback` (429, 503, `RESOURCE_EXHAUSTED`, `UNAVAILABLE`), `error` (any other failure) and `cancelled`. `cancelled` is a started call whose future was dropped before it returned, by the probe's own timeout or by shutdown. The server may still have finished it. A call still waiting for its turn at the API's gate is not counted. |
 | `carbide_site_health_probe_up` | gauge | `api`, `probe` | 1 if the probe's most recent run succeeded, 0 on failure, timeout, or panic — the gauge operators alert on. |
 | `carbide_site_health_probe_last_run_timestamp_seconds` | gauge | `api`, `probe` | Unix time of the most recent completed run; a stale value means the probe is wedged or stopped. |
 
@@ -120,15 +120,7 @@ The state readers need a nico-api client certificate that maps to an external
 user (`nicoApiClientCert.existingSecret`, keys `ca.crt`, `tls.crt`,
 `tls.key`): the SPIFFE identity may call only `FindMachineIds` and
 `FindMachinesByIds`. REST identities take client credentials, a bearer token
-in a Secret, or a token file. `/v1/summary` needs `state.metricsStore.url`, a
-Prometheus-compatible store that scrapes this probe; an empty
-`metricsStore.selector` selects it by job (the metrics Service name) and
-namespace. Sites that scrape through another job, such as the `nico-ipv6`
-job of `helm-prereqs`, set the selector's `job` to that job. A summary reads
-its window in one-hour chunks through the metrics-store call gate, and the
-chart and the probe refuse a `metricsStore.maxWindow` whose store calls alone
-would take more than half of `metricsStore.summaryDeadline` (24h fits the
-default 90s).
+in a Secret, or a token file.
 
 The nico-api reader runs by default once state is on; the REST reader stays
 off until its inputs exist. A complete REST-enabled state section:
@@ -144,8 +136,6 @@ nico-site-health-probe:
   state:
     enabled: true
     siteId: <REST site ID>
-    metricsStore:
-      url: http://<prometheus>.<namespace>.svc:9090
     rest:
       target: https://nico-rest-api.nico-rest.svc.cluster.local:8388
       provider:
@@ -165,8 +155,7 @@ nico-site-health-probe:
 Served on `api.port` (default 9010) by the `<name>-api` Service. Wire types:
 `crates/site-health-probe-api`. Parameters are camelCase, times RFC 3339 UTC,
 unknown parameters are 400. Errors carry
-`{"error": {"code", "message", "field"}}`. 429, 503 and 504 carry
-`Retry-After`. A 502 names no store detail; the probe logs it.
+`{"error": {"code", "message", "field"}}`. 503 carries `Retry-After`.
 
 | Method and path | Answers | Errors |
 |---|---|---|
@@ -174,16 +163,9 @@ unknown parameters are 400. Errors carry
 | `GET /v1/units` | Units with state, reason and type fields, 100 per page (max 1,000), cursor paging pinned to one snapshot | As count, 409 `snapshot_expired` |
 | `POST /v1/units/query` | The same, with a JSON body that can ask for up to 10,000 IDs (`missingIds` lists absent ones) | As `/v1/units` |
 | `GET /v1/config` | `restSite`: the REST site checked against the device census (`match`, `mismatch` or `unknown`), with its read times. `null` while the REST inventory reader is off, which is not a site match. `nicoApi` and `rest` are `null` until their readers return | 400, 503 while the REST inventory reader is on and waits for its first site check |
-| `GET /v1/summary` | When a count crossed each quantile of a target, from the metrics store, with the timing error bound | 400, 422, 429 `busy`, 502 `store_unavailable`, 504 `store_timeout` |
-| `GET /v1/store-status` | The newest host sweep sample in the store and its age | 502, 504 |
 
-`/v1/summary` takes at most 198 quantiles in `q`: each crossing is a point
-its curve of at most 200 always keeps, beside the first and the last. Each
-quantile is a plain decimal in (0, 1] with at most six decimal places. A
-summary holds at most 1,000,000 store samples across its window: a window
-and filter that select more are 400 `invalid_param` on `start`, so shorten
-the window or narrow the filter. At shutdown, requests still running after
-10 s are cut short with 503 and their connections close.
+At shutdown, requests still running after 10 s are cut short with 503 and
+their connections close.
 
 Allocatability and update eligibility filters are 422 `field_unavailable`
 until nico-api serves a compact host read; exact version filters
@@ -241,10 +223,8 @@ SELECT count(*) FROM expected_racks;
 ```
 
 Each must equal `/v1/count?type=<type>` (and `stage=ready` for ready hosts)
-when no unit changed between the sweep's `readAt` and the query. Then compare
-one host's Ready time in its state history with `/v1/summary` for a target of
-that host: `reachedAt` must fall in `[true time, true time +
-timingErrorSeconds]`. Last, check the store: an instant query of
+when no unit changed between the sweep's `readAt` and the query. Then check
+the store: an instant query of
 `carbide_site_health_probe_sweep_complete_timestamp_seconds{family="host"}[5m]`
 must return one sample per scrape interval, and record the store's dedup and
 downsampling settings with the result.

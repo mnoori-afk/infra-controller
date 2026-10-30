@@ -69,10 +69,6 @@ data:
         max_backoff: {{ .caps.maxBackoff | quote }}
     {{- if .enabled }}
     {{- $tlsDir := include "nico-site-health-probe.stateTlsDir" $ }}
-    {{- $selector := .metricsStore.selector }}
-    {{- if not $selector }}
-    {{- $selector = dict "job" (printf "%s-metrics" (include "nico-site-health-probe.name" $)) "namespace" (include "nico-site-health-probe.namespace" $) }}
-    {{- end }}
       site_id: {{ .siteId | quote }}
       nico_api:
         target: {{ .nicoApi.target | quote }}
@@ -100,15 +96,6 @@ data:
           interval: {{ $reader.interval | quote }}
           timeout: {{ $reader.timeout | quote }}
         {{- end }}
-      metrics_store:
-        url: {{ .metricsStore.url | quote }}
-        selector:
-          {{- range $label, $value := $selector }}
-          {{ $label }}: {{ $value | quote }}
-          {{- end }}
-        max_window: {{ .metricsStore.maxWindow | quote }}
-        summary_deadline: {{ .metricsStore.summaryDeadline | quote }}
-        scrape_interval: {{ $.Values.serviceMonitor.interval | quote }}
       paging:
         keep_seconds: {{ .paging.keepSeconds }}
         max_kept_snapshots: {{ .paging.maxKeptSnapshots }}

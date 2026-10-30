@@ -16,18 +16,16 @@
  */
 
 //! The probe end to end on a fake site, on tokio's paused clock: the device
-//! reader sweeps a fake nico-api, the state collector publishes, a fake
-//! metrics store scrapes the registry, and the /v1 API answers from both.
-//! This stands in for the site checks (database counts and state history)
-//! until a site run.
+//! reader sweeps a fake nico-api, the state collector publishes, and the /v1
+//! API answers from the same snapshots. This stands in for the site check
+//! (database counts) until a site run.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use carbide_site_health_probe_api::{CountResponse, Family, SummaryParams, SummaryResponse};
-use chrono::{DateTime, Utc};
+use carbide_site_health_probe_api::CountResponse;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
@@ -40,13 +38,10 @@ use crate::readers::devices::{DEVICE_FAMILIES, DevicesReader};
 use crate::snapshot::SnapshotSink;
 use crate::state::store::SnapshotStore;
 use crate::state_metrics::{CountingSink, StateCollector};
-use crate::store::fake::{FakeStore, millis};
-use crate::summary::SummaryState;
 
 const HOSTS: u32 = 18;
 /// Host i turns Ready at T0 + i × this.
 const READY_STEP: Duration = Duration::from_secs(30);
-const SCRAPE: Duration = Duration::from_secs(5);
 
 /// One rack: 18 hosts with two DPUs each, 9 switches, 8 shelves, and an
 /// expected record for every device.
@@ -75,32 +70,6 @@ fn one_rack() -> FakeSite {
     site
 }
 
-/// Copies every sample of one scrape of `registry` into `store`, labelled
-/// as the probe's metrics Service would be.
-fn scrape(registry: &prometheus::Registry, store: &FakeStore) {
-    let at = millis(crate::clock::now());
-    for family in registry.gather() {
-        for metric in family.get_metric() {
-            let value = match family.get_field_type() {
-                prometheus::proto::MetricType::GAUGE => metric.gauge.value(),
-                prometheus::proto::MetricType::COUNTER => metric.counter.value(),
-                _ => continue,
-            };
-            let mut labels: Vec<(&str, &str)> = metric
-                .get_label()
-                .iter()
-                .map(|l| (l.name(), l.value()))
-                .collect();
-            labels.extend([
-                ("job", "nico-site-health-probe-metrics"),
-                ("namespace", "nico"),
-                ("instance", "10.0.0.9:9009"),
-            ]);
-            store.add(family.name(), &labels, at, value);
-        }
-    }
-}
-
 pub(crate) async fn get<T: serde::de::DeserializeOwned>(
     app: &axum::Router,
     uri: &str,
@@ -123,26 +92,14 @@ async fn count(app: &axum::Router, query: &str) -> u64 {
     reply.expect("count reply").count
 }
 
-fn utc(at: SystemTime) -> DateTime<Utc> {
-    DateTime::<Utc>::from(at)
-}
-
 #[tokio::test(start_paused = true)]
-async fn fake_site_counts_ready_and_summary_within_timing_error() {
+async fn fake_site_counts_match_the_site() {
     let t0 = crate::clock::now();
     let started = tokio::time::Instant::now();
 
     let mut cfg = StateConfig::default();
     cfg.readers.devices.interval = Duration::from_secs(20);
     cfg.paging.max_kept_snapshots = 16;
-    cfg.metrics_store.selector = [
-        ("job", "nico-site-health-probe-metrics"),
-        ("namespace", "nico"),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
-
     let setup = metrics_endpoint::new_metrics_setup("site-health-probe", "test", false)
         .expect("metrics setup");
     let store = Arc::new(SnapshotStore::new(&cfg.paging));
@@ -175,16 +132,7 @@ async fn fake_site_counts_ready_and_summary_within_timing_error() {
         t0,
     );
 
-    let metrics_store = Arc::new(FakeStore::new(Arc::new(crate::clock::now)));
-    let app = router(ApiState::new(
-        Arc::clone(&store),
-        &cfg,
-        SummaryState::new(
-            Arc::clone(&metrics_store) as Arc<dyn crate::store::MetricsStore>,
-            &cfg.metrics_store,
-            Arc::new(crate::clock::now),
-        ),
-    ));
+    let app = router(ApiState::new(Arc::clone(&store), &cfg));
 
     let cancel = CancellationToken::new();
     let probes: Vec<Arc<dyn Probe>> = vec![Arc::new(reader)];
@@ -207,22 +155,6 @@ async fn fake_site_counts_ready_and_summary_within_timing_error() {
             }
         }
     });
-    // The store scrapes the probe every 5 s.
-    let scraper = tokio::spawn({
-        let registry = setup.registry.clone();
-        let metrics_store = Arc::clone(&metrics_store);
-        let cancel = cancel.clone();
-        async move {
-            let mut ticker = tokio::time::interval(SCRAPE);
-            loop {
-                tokio::select! {
-                    () = cancel.cancelled() => return,
-                    _ = ticker.tick() => scrape(&registry, &metrics_store),
-                }
-            }
-        }
-    });
-
     // Not ready, and no answer, before the first complete sweep.
     let mut ready = Box::pin(store.wait_all_ready(&DEVICE_FAMILIES));
     assert!(
@@ -260,49 +192,9 @@ async fn fake_site_counts_ready_and_summary_within_timing_error() {
         assert_eq!(count(&app, query).await, truth, "{query}");
     }
 
-    // Each crossing lands within its timing error after the true time.
-    let end = crate::clock::now() - Duration::from_secs(10);
-    let params = SummaryParams {
-        start: utc(t0),
-        end: utc(end),
-        base: 0,
-        n: HOSTS as u64,
-        direction: carbide_site_health_probe_api::Direction::Up,
-        q: None,
-        add_window_seconds: 0.0,
-    };
-    let uri = format!(
-        "/v1/summary?type=host&stage=ready&{}",
-        serde_urlencoded::to_string(&params).unwrap()
-    );
-    let (status, summary) = get::<SummaryResponse>(&app, &uri).await;
-    assert_eq!(status, StatusCode::OK);
-    let summary = summary.expect("summary reply");
-    assert_eq!(summary.family, Family::Host);
-    assert!(summary.final_scrape_seen);
-    assert_eq!(summary.final_count, Some(HOSTS as u64));
-    assert_eq!(summary.probe_restarts, 0);
-    let timing_error = summary.timing_error_seconds.expect("timing error");
-    assert!(
-        timing_error < 60.0,
-        "timing error {timing_error} s at a 20 s sweep"
-    );
-    assert_eq!(summary.crossings.len(), 6);
-    for crossing in &summary.crossings {
-        let reached = crossing.reached_at.expect("every quantile is reached");
-        let truth = utc(t0 + READY_STEP * crossing.target as u32);
-        let late = (reached - truth).num_milliseconds() as f64 / 1000.0;
-        assert!(
-            (0.0..=timing_error).contains(&late),
-            "q {} reached {late} s after the true time, error bound {timing_error} s",
-            crossing.q
-        );
-    }
-
     cancel.cancel();
     framework::join_loops(loops).await.expect("loops end");
     collector.await.expect("collector");
-    scraper.await.expect("scraper");
 }
 
 /// Whether a pinned future is still pending after one poll.

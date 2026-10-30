@@ -119,17 +119,11 @@ deployer should hear about at install time.
 {{- with .Values.state -}}
 {{- if .enabled -}}
 {{- $_ := required "state.siteId is required when state is enabled" .siteId -}}
-{{- $_ := required "state.metricsStore.url is required when state is enabled" .metricsStore.url -}}
 {{- if and (include "nico-site-health-probe.nicoReaders" $) (not $.Values.nicoApiClientCert.existingSecret) -}}
 {{- fail "nicoApiClientCert.existingSecret is required while a nico-api state reader is on: the probe's SPIFFE identity may call only FindMachineIds and FindMachinesByIds" -}}
 {{- end -}}
 {{- if and (include "nico-site-health-probe.nicoReaders" $) (ne (toString .nicoApi.hostRead) "full") -}}
 {{- fail "state.nicoApi.hostRead must be full: nico-api has no compact host read yet" -}}
-{{- end -}}
-{{- with .metricsStore.selector -}}
-{{- if not (and .job .namespace) -}}
-{{- fail "state.metricsStore.selector must set both job and namespace, or be empty" -}}
-{{- end -}}
 {{- end -}}
 {{- if include "nico-site-health-probe.restReaders" $ -}}
 {{- if not (hasPrefix "https://" (toString .rest.target)) -}}
@@ -147,25 +141,13 @@ deployer should hear about at install time.
 {{- end -}}
 {{- end -}}
 {{- $scrape := include "nico-site-health-probe.seconds" $.Values.serviceMonitor.interval | float64 -}}
-{{- $slowest := 0.0 -}}
 {{- range $name, $reader := .readers -}}
 {{- if $reader.enabled -}}
 {{- $interval := include "nico-site-health-probe.seconds" $reader.interval | float64 -}}
 {{- if gt (mulf 2 $scrape) $interval -}}
 {{- fail (printf "serviceMonitor.interval (%s) must be at most half of state.readers.%s.interval (%s)" $.Values.serviceMonitor.interval $name $reader.interval) -}}
 {{- end -}}
-{{- $slowest = maxf $slowest $interval -}}
 {{- end -}}
-{{- end -}}
-{{- /*
-A summary reads its window and two reader intervals before it in one-hour
-chunks of up to three store calls, at caps.callsPerSecond. Those calls may
-take half of summaryDeadline, as the probe checks at startup.
-*/ -}}
-{{- $span := addf (include "nico-site-health-probe.seconds" .metricsStore.maxWindow | float64) (mulf 2 $slowest) -}}
-{{- $reads := divf (mulf (ceil (divf $span 3600)) 3) (float64 .caps.callsPerSecond) -}}
-{{- if gt (mulf 2 $reads) (include "nico-site-health-probe.seconds" .metricsStore.summaryDeadline | float64) -}}
-{{- fail (printf "state.metricsStore.maxWindow (%s) is too long for summaryDeadline (%s): its store calls alone take %.1fs, more than half the deadline" .metricsStore.maxWindow .metricsStore.summaryDeadline $reads) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

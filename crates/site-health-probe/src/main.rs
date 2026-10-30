@@ -35,11 +35,20 @@ mod probes;
 mod readers;
 mod rest;
 mod snapshot;
-#[cfg(test)]
-mod soak_tests;
 mod state;
 mod state_metrics;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the metrics store history moves to the scale test runner"
+    )
+)]
 mod store;
+#[expect(
+    dead_code,
+    reason = "the metrics store history moves to the scale test runner"
+)]
 mod summary;
 
 use std::sync::Arc;
@@ -52,10 +61,9 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-/// How long requests in flight on the /v1 API may finish at shutdown. A
-/// summary can run for its whole deadline; the pod's grace period (30 s by
-/// default) also covers the probes' drain before and the metrics endpoint
-/// after.
+/// How long requests in flight on the /v1 API may finish at shutdown. The
+/// pod's grace period (30 s by default) also covers the probes' drain before
+/// and the metrics endpoint after.
 const API_DRAIN: Duration = Duration::from_secs(10);
 /// How long the /v1 connections get to close once their requests are cut
 /// short, and again once their I/O is closed, before the server is stopped.
@@ -102,7 +110,7 @@ async fn run() -> eyre::Result<()> {
             .meter
             .u64_counter("carbide_site_health_probe_calls")
             .with_description(
-                "Calls to each API (nico-api, nico-rest-api, metrics-store) by call and result \
+                "Calls to each API (nico-api, nico-rest-api) by call and result \
                  (ok, error, timeout, pushback, cancelled). cancelled is a started call whose \
                  future was dropped before it returned, e.g. by the probe's own timeout.",
             )
@@ -155,21 +163,7 @@ async fn run() -> eyre::Result<()> {
         let api_addr = cfg.api_listen_addr()?;
         let listener = bind(api_addr).await.wrap_err("bind the /v1 API")?;
         tracing::info!(api_listen = %listener.local_addr()?, "serving /v1");
-        let metrics_store = store::PromStore::new(
-            rest::client::new_http_client("")?,
-            &cfg.state.metrics_store.url,
-            Arc::clone(&gates.metrics_store),
-        )?;
-        let summaries = summary::SummaryState::new(
-            Arc::new(metrics_store),
-            &cfg.state.metrics_store,
-            Arc::new(clock::now),
-        );
-        let router = api::router(api::ApiState::new(
-            Arc::clone(&store),
-            &cfg.state,
-            summaries,
-        ));
+        let router = api::router(api::ApiState::new(Arc::clone(&store), &cfg.state));
         Some(serve_api(
             listener,
             router,
@@ -627,30 +621,11 @@ mod tests {
         assert!(!shutdown.requests.is_cancelled(), "nothing to cut short");
     }
 
-    /// A metrics store call that never returns.
-    struct HangingStore {
-        entered: Arc<tokio::sync::Notify>,
-        dropped: Arc<std::sync::atomic::AtomicBool>,
-    }
-
     struct SetOnDrop(Arc<std::sync::atomic::AtomicBool>);
 
     impl Drop for SetOnDrop {
         fn drop(&mut self) {
             self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl store::MetricsStore for HangingStore {
-        async fn raw(
-            &self,
-            _: &store::RawQuery,
-            _: SystemTime,
-        ) -> Result<Vec<store::RawSeries>, store::StoreError> {
-            let _guard = SetOnDrop(Arc::clone(&self.dropped));
-            self.entered.notify_one();
-            std::future::pending().await
         }
     }
 
@@ -666,9 +641,9 @@ mod tests {
         String::from_utf8_lossy(&reply).into_owned()
     }
 
-    /// At shutdown, a request whose body never finishes and a summary whose
-    /// store call never returns are cut short with 503, both connections
-    /// close with the clients still open, and the server ends on its own.
+    /// At shutdown, a request whose body never finishes and a handler that
+    /// never returns are cut short with 503, both connections close with the
+    /// clients still open, and the server ends on its own.
     #[tokio::test]
     async fn api_shutdown_cuts_stalled_requests_short() {
         use tokio::io::AsyncWriteExt;
@@ -676,19 +651,22 @@ mod tests {
         let cfg = Config::default();
         let entered = Arc::new(tokio::sync::Notify::new());
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let hanging = HangingStore {
-            entered: Arc::clone(&entered),
-            dropped: Arc::clone(&dropped),
-        };
         let router = api::router(api::ApiState::new(
             Arc::new(state::store::SnapshotStore::new(&cfg.state.paging)),
             &cfg.state,
-            summary::SummaryState::new(
-                Arc::new(hanging),
-                &cfg.state.metrics_store,
-                Arc::new(clock::now),
-            ),
-        ));
+        ))
+        .route(
+            "/test/pending",
+            axum::routing::get({
+                let entered = Arc::clone(&entered);
+                let dropped = Arc::clone(&dropped);
+                move || async move {
+                    let _guard = SetOnDrop(dropped);
+                    entered.notify_one();
+                    std::future::pending::<()>().await
+                }
+            }),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind");
@@ -705,29 +683,14 @@ mod tests {
             )
             .await
             .expect("partial request");
-        let end = chrono::DateTime::<chrono::Utc>::from(clock::now() - Duration::from_secs(1));
-        let start = end - chrono::Duration::seconds(600);
-        let query = serde_urlencoded::to_string([
-            ("type", "host".to_string()),
-            ("stage", "ready".to_string()),
-            ("start", start.to_rfc3339()),
-            ("end", end.to_rfc3339()),
-            ("base", "0".to_string()),
-            ("n", "1".to_string()),
-            ("direction", "up".to_string()),
-            ("addWindowSeconds", "0".to_string()),
-        ])
-        .expect("query");
-        let mut summary = tokio::net::TcpStream::connect(addr).await.expect("connect");
-        summary
-            .write_all(
-                format!("GET /v1/summary?{query} HTTP/1.1\r\nhost: probe\r\n\r\n").as_bytes(),
-            )
+        let mut pending = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        pending
+            .write_all(b"GET /test/pending HTTP/1.1\r\nhost: probe\r\n\r\n")
             .await
-            .expect("summary request");
+            .expect("pending request");
         tokio::time::timeout(Duration::from_secs(5), entered.notified())
             .await
-            .expect("the summary reaches the store");
+            .expect("the pending request reaches its handler");
         // Let the server read the stalled request's head.
         tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -739,9 +702,9 @@ mod tests {
         );
         assert!(
             dropped.load(std::sync::atomic::Ordering::SeqCst),
-            "the summary's store call stopped"
+            "the pending handler stopped"
         );
-        for client in [&mut stalled, &mut summary] {
+        for client in [&mut stalled, &mut pending] {
             let reply = until_closed(client).await;
             assert!(reply.starts_with("HTTP/1.1 503"), "{reply}");
             assert!(reply.contains("shutting down"), "{reply}");
@@ -759,7 +722,6 @@ mod tests {
         let router = api::router(api::ApiState::new(
             Arc::new(state::store::SnapshotStore::new(&cfg.state.paging)),
             &cfg.state,
-            summary::SummaryState::unused(&cfg.state.metrics_store),
         ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

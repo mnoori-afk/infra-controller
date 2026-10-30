@@ -26,7 +26,6 @@
 //! TODO(#5360-followup): progress reporting — publish p50/p95/p99 of machine
 //! progress (e.g. created→ready) during scale tests as gauges from this pod.
 
-use std::collections::BTreeMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
@@ -266,36 +265,6 @@ impl Readers {
     }
 }
 
-/// The Prometheus-compatible store `/v1/summary` reads the probe's own
-/// series back from.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub(crate) struct MetricsStoreConfig {
-    pub url: String,
-    /// Label matchers that pick this site's probe series. Must name `job`
-    /// and `namespace`, so a shared store never mixes sites.
-    pub selector: BTreeMap<String, String>,
-    #[serde(deserialize_with = "duration_str::deserialize_duration")]
-    pub max_window: Duration,
-    #[serde(deserialize_with = "duration_str::deserialize_duration")]
-    pub summary_deadline: Duration,
-    /// The store's scrape interval of the probe (the ServiceMonitor's).
-    #[serde(deserialize_with = "duration_str::deserialize_duration")]
-    pub scrape_interval: Duration,
-}
-
-impl Default for MetricsStoreConfig {
-    fn default() -> Self {
-        Self {
-            url: String::new(),
-            selector: BTreeMap::new(),
-            max_window: Duration::from_secs(24 * 60 * 60),
-            summary_deadline: Duration::from_secs(90),
-            scrape_interval: Duration::from_secs(5),
-        }
-    }
-}
-
 /// How long a replaced snapshot that a cursor points into stays readable
 /// for its paging client.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -336,7 +305,6 @@ pub(crate) struct StateConfig {
     pub nico_api: NicoApiStateConfig,
     pub rest: RestStateConfig,
     pub readers: Readers,
-    pub metrics_store: MetricsStoreConfig,
     pub paging: Paging,
 }
 
@@ -543,60 +511,6 @@ impl StateConfig {
                 errs.push("state.rest.provider.org is required".to_string());
             }
             validate_credentials("state.rest.provider.auth", &rest.provider.auth, errs);
-        }
-
-        let store = &self.metrics_store;
-        if !Url::parse(&store.url).is_ok_and(|u| matches!(u.scheme(), "http" | "https")) {
-            errs.push("state.metrics_store.url must be an http:// or https:// URL".to_string());
-        }
-        for key in ["job", "namespace"] {
-            if store.selector.get(key).is_none_or(String::is_empty) {
-                errs.push(format!("state.metrics_store.selector must set {key}"));
-            }
-        }
-        if store.max_window.is_zero() {
-            errs.push("state.metrics_store.max_window must be positive".to_string());
-        }
-        if store.summary_deadline.is_zero() {
-            errs.push("state.metrics_store.summary_deadline must be positive".to_string());
-        } else if self.caps.calls_per_second.is_finite() && self.caps.calls_per_second > 0.0 {
-            // The store calls of a summary over the longest window may take
-            // half the deadline; the other half is for store latency and the
-            // wait for the final scrape.
-            let slowest = readers
-                .iter()
-                .filter(|(_, reader)| reader.enabled)
-                .map(|(_, reader)| reader.interval)
-                .max()
-                .unwrap_or_default();
-            let reads = crate::summary::least_read_time(
-                store.max_window,
-                slowest,
-                self.caps.calls_per_second,
-            );
-            if reads > store.summary_deadline / 2 {
-                errs.push(format!(
-                    "state.metrics_store.max_window is too long for the summary_deadline: its \
-                     store calls alone take {reads:?} at state.caps.calls_per_second, more than \
-                     half the deadline"
-                ));
-            }
-        }
-        if store.scrape_interval.is_zero() {
-            errs.push("state.metrics_store.scrape_interval must be positive".to_string());
-        } else if let Some(fastest) = readers
-            .iter()
-            .filter(|(_, reader)| reader.enabled && !reader.interval.is_zero())
-            .map(|(_, reader)| reader.interval)
-            .min()
-            && store.scrape_interval * 2 > fastest
-        {
-            // Every sweep must land in at least two scrapes, or the store
-            // can miss sweep ends and summaries lose their timing evidence.
-            errs.push(format!(
-                "state.metrics_store.scrape_interval must be at most half the fastest reader \
-                 interval ({fastest:?})"
-            ));
         }
 
         if self.paging.keep_seconds == 0 {
@@ -980,9 +894,6 @@ state:
     provider:
       org: provider-org
       auth: {token_url: https://k/token, client_id: probe, client_secret_path: /s/provider}
-  metrics_store:
-    url: http://prometheus.monitoring.svc:9090
-    selector: {job: nico-site-health-probe-metrics, namespace: nico-system}
 "#;
 
     fn state_with(extra: &str) -> eyre::Result<Config> {
@@ -1015,63 +926,11 @@ state:
         let readers = &state.readers;
         assert_eq!(schedule(&readers.devices), (true, 120, 600));
         assert_eq!(schedule(&readers.rest_inventory), (true, 120, 600));
-        let store = &state.metrics_store;
-        assert_eq!(store.max_window, Duration::from_secs(24 * 3600));
-        assert_eq!(store.summary_deadline, Duration::from_secs(90));
-        assert_eq!(store.scrape_interval, Duration::from_secs(5));
         assert_eq!(state.paging, Paging::default());
         assert_eq!(
             (state.paging.keep_seconds, state.paging.max_kept_snapshots),
             (300, 6)
         );
-    }
-
-    #[test]
-    fn state_config_rejects_slow_scrape() {
-        // Every sweep of the fastest reader (devices, 20 s here) must land
-        // in two scrapes.
-        let fast = "  readers:\n    devices: {enabled: true, interval: 20s, timeout: 600s}\n  \
-                    paging: {max_kept_snapshots: 16}\n";
-        let err = state_with(&format!("    scrape_interval: 11s\n{fast}"))
-            .expect_err("11 s scrapes miss 20 s sweeps")
-            .to_string();
-        assert!(
-            err.contains("state.metrics_store.scrape_interval must be at most half"),
-            "{err}"
-        );
-        state_with(&format!("    scrape_interval: 10s\n{fast}")).expect("exactly half is enough");
-        let off = "  readers:\n    devices: {enabled: false, interval: 20s, timeout: 600s}\n";
-        state_with(&format!("    scrape_interval: 30s\n{off}"))
-            .expect("only enabled readers bound the scrape interval");
-    }
-
-    #[test]
-    fn state_config_bounds_max_window() {
-        // A 48 h window and two 120 s reader intervals are 49 one-hour
-        // chunks of up to 3 store calls at 2 calls/s: 73.5 s of a 90 s
-        // deadline.
-        let err = state_with("    max_window: 48h\n")
-            .expect_err("48 h needs more than half of 90 s")
-            .to_string();
-        assert!(
-            err.contains("state.metrics_store.max_window is too long for the summary_deadline"),
-            "{err}"
-        );
-        // 30 chunks are 45 s, exactly half.
-        state_with("    max_window: 29h56m\n").expect("half the deadline is enough");
-        assert!(
-            state_with("    max_window: 29h57m\n").is_err(),
-            "31 chunks are 46.5 s"
-        );
-        state_with("    max_window: 48h\n    summary_deadline: 150s\n")
-            .expect("a longer deadline fits it");
-        state_with("    max_window: 48h\n  caps: {calls_per_second: 4}\n")
-            .expect("a faster gate fits it");
-        // So slow a gate that the reads saturate is refused, not a panic.
-        let err = state_with("  caps: {calls_per_second: 1e-300}\n")
-            .expect_err("no window fits")
-            .to_string();
-        assert!(err.contains("max_window is too long"), "{err}");
     }
 
     #[test]
@@ -1174,11 +1033,6 @@ state:
                 "site id required",
                 "state:\n  enabled: true\n",
                 "state.site_id is required",
-            ),
-            (
-                "selector needs job and namespace",
-                "state:\n  enabled: true\n  metrics_store: {url: http://p:9090, selector: {job: j}}\n",
-                "state.metrics_store.selector must set namespace",
             ),
             (
                 "nico-api reader needs tls",
@@ -1284,22 +1138,14 @@ state:
       enabled: true
       interval: "120s"
       timeout: "600s"
-  metrics_store:
-    url: "http://prometheus.monitoring.svc:9090"
-    selector:
-      job: "nico-site-health-probe-metrics"
-      namespace: "default"
-    max_window: "24h"
-    summary_deadline: "90s"
-    scrape_interval: "5s"
   paging:
     keep_seconds: 300
     max_kept_snapshots: 6
 "#;
 
     /// The config.yaml the parent chart renders with only the required
-    /// state inputs (`state.enabled`, `siteId`, `metricsStore.url` and the
-    /// admin certificate). Keep it in step with templates/configmap.yaml.
+    /// state inputs (`state.enabled`, `siteId` and the admin certificate).
+    /// Keep it in step with templates/configmap.yaml.
     const CHART_MINIMAL: &str = r#"
 metrics_listen: ":9009"
 api_listen: ":9010"
@@ -1366,14 +1212,6 @@ state:
       enabled: false
       interval: "120s"
       timeout: "600s"
-  metrics_store:
-    url: "http://p:9090"
-    selector:
-      job: "nico-site-health-probe-metrics"
-      namespace: "default"
-    max_window: "24h"
-    summary_deadline: "90s"
-    scrape_interval: "5s"
   paging:
     keep_seconds: 300
     max_kept_snapshots: 6
@@ -1447,14 +1285,6 @@ state:
         let cfg = load_str(CHART_RENDERED).expect("the chart's rendering loads");
         assert!(cfg.state.enabled);
         assert_eq!(cfg.state.rest.provider.org, "provider-org");
-        assert_eq!(
-            cfg.state
-                .metrics_store
-                .selector
-                .get("job")
-                .map(String::as_str),
-            Some("nico-site-health-probe-metrics")
-        );
         assert_eq!(cfg.api_listen_addr().expect("api").port(), 9010);
     }
 
