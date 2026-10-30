@@ -163,9 +163,10 @@ impl RestInventoryReader {
     /// census, and mismatches when none does. A page with a machine that
     /// names no NICo machine, or a mix (a machine ingested after the census
     /// could explain it), is unknown: missing evidence never makes a match.
-    /// Before the first device census there is nothing to check against, so
-    /// the check stays unresolved and the family unpublished. Without a
-    /// device reader it is always unknown.
+    /// With the devices reader enabled, a nonempty page with controller IDs
+    /// waits for the first device census: the check stays unresolved and the
+    /// family unpublished. Empty or ID-less pages publish unknown. Without a
+    /// device reader the site is always unknown.
     async fn site_match(&self, rec: &ObservationRecorder) -> Result<SiteMatchData, Failure> {
         let reply = self
             .client

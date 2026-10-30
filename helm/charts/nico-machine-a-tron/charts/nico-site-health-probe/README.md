@@ -165,7 +165,7 @@ unknown parameters are 400. Errors carry
 | `GET /v1/count` | Units matching a filter in the newest complete sweep, with its snapshot ID and sweep times | 400, 422 `unsupported_filter` and `field_unavailable`, 503 `no_complete_sweep` |
 | `GET /v1/units` | Units with state, reason and type fields, 100 per page (max 1,000), cursor paging pinned to one snapshot | As count, 409 `snapshot_expired` |
 | `POST /v1/units/query` | The same, with a JSON body that can ask for up to 10,000 IDs (`missingIds` lists absent ones) | As `/v1/units` |
-| `GET /v1/config` | `restSite`: the REST site checked against the device census (`match`, `mismatch` or `unknown`; always `unknown` with the devices reader off), with its read times. The check waits for the first device census. `null` while the REST inventory reader is off, which is not a site match. `nicoApi` and `rest` are `null` until their readers return | 400, 503 while the REST inventory reader is on and waits for its first site check |
+| `GET /v1/config` | `restSite`: the REST site checked against the device census (`match`, `mismatch` or `unknown`; always `unknown` with the devices reader off), with its read times. With the devices reader enabled, a nonempty page with controller IDs waits for the first device census. Empty or ID-less pages publish `unknown`. `null` while the REST inventory reader is off, which is not a site match. `nicoApi` and `rest` are `null` until their readers return | 400, 503 while the REST inventory reader is on and waits for its first site check |
 
 At shutdown, requests still running after 10 s are cut short with 503 and
 their connections close.

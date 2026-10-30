@@ -23,6 +23,6 @@ spec:
     - port: metrics
       path: /metrics
       {{- with include "nico-site-health-probe.scrapeInterval" . }}
-      interval: {{ . }}
+      interval: {{ . | quote }}
       {{- end }}
 {{- end }}
