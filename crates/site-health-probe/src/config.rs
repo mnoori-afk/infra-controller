@@ -288,9 +288,11 @@ impl Paging {
     /// Replaced snapshots a paged family must hold to keep each one for
     /// `keep_seconds`: the publications that fit in that window, plus one
     /// because a slow sweep can be followed at once by an overdue tick.
-    pub(crate) fn needed_for(&self, interval: Duration) -> usize {
-        let per_window = (self.keep_seconds as f64 / interval.as_secs_f64()).ceil();
-        per_window as usize + 1
+    /// `None` when that many cannot be counted.
+    pub(crate) fn needed_for(&self, interval: Duration) -> Option<usize> {
+        let keep = u128::from(self.keep_seconds) * 1_000_000_000;
+        let per_window = keep.div_ceil(interval.as_nanos());
+        usize::try_from(per_window).ok()?.checked_add(1)
     }
 }
 
@@ -437,10 +439,19 @@ fn resolve_listen(key: &str, raw: &str, default: &str) -> eyre::Result<SocketAdd
         .ok_or_else(|| eyre!("invalid {key} {raw:?}"))
 }
 
+/// The slowest call rate a gate takes: one call an hour.
+const MIN_CALLS_PER_SECOND: f64 = 1.0 / 3600.0;
+
 impl Caps {
     fn validate(&self, errs: &mut Vec<String>) {
         if !(self.calls_per_second.is_finite() && self.calls_per_second > 0.0) {
             errs.push("state.caps.calls_per_second must be positive".to_string());
+        } else if self.calls_per_second < MIN_CALLS_PER_SECOND {
+            // The gates space calls 1 / calls_per_second apart, which must
+            // stay a representable time.
+            errs.push(
+                "state.caps.calls_per_second must allow at least one call an hour".to_string(),
+            );
         }
         if self.call_timeout.is_zero() {
             errs.push("state.caps.call_timeout must be positive".to_string());
@@ -523,12 +534,15 @@ impl StateConfig {
             if !reader.enabled || reader.interval.is_zero() || self.paging.keep_seconds == 0 {
                 continue;
             }
-            let needed = self.paging.needed_for(reader.interval);
-            if self.paging.max_kept_snapshots < needed {
-                errs.push(format!(
+            match self.paging.needed_for(reader.interval) {
+                None => errs.push(format!(
+                    "state.paging.keep_seconds is too long for the {name} reader interval"
+                )),
+                Some(needed) if self.paging.max_kept_snapshots < needed => errs.push(format!(
                     "state.paging.max_kept_snapshots must be at least {needed} for the {name} \
                      reader interval"
-                ));
+                )),
+                Some(_) => {}
             }
         }
     }
@@ -999,12 +1013,33 @@ state:
         );
     }
 
+    /// A keep window that holds more snapshots than can be counted is
+    /// refused, not an overflow.
+    #[test]
+    fn state_config_rejects_uncountable_paging() {
+        let err = load_str(&format!(
+            "{STATE}  readers:\n    devices: {{enabled: true, interval: 1ns, timeout: 600s}}\n  \
+             paging: {{keep_seconds: {}}}\n",
+            u64::MAX
+        ))
+        .expect_err("uncountable snapshots")
+        .to_string();
+        assert!(
+            err.contains("state.paging.keep_seconds is too long for the devices reader interval"),
+            "{err}"
+        );
+    }
+
     #[test]
     fn caps_validated_without_state_readers() {
         for (caps, want) in [
             (
                 "calls_per_second: 0",
                 "state.caps.calls_per_second must be positive",
+            ),
+            (
+                "calls_per_second: 1e-20",
+                "state.caps.calls_per_second must allow at least one call an hour",
             ),
             (
                 "call_timeout: 0s",
