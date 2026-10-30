@@ -79,7 +79,10 @@ timeout), so pair the `up` alert with `absent(...)` or a staleness check on
 `last_run_timestamp_seconds`.
 
 Set `serviceMonitor.enabled=true` to render a ServiceMonitor for
-Prometheus-operator sites; otherwise scrape the metrics Service, named
+Prometheus-operator sites. Its `serviceMonitor.interval` defaults to
+Prometheus's global interval, or 5s with state on, and with state on must be
+at most half the fastest reader interval. Otherwise scrape the metrics
+Service, named
 `nico-site-health-probe-metrics` by default (the chart name plus `-metrics`,
 independent of the Helm release name; with `nameOverride` set it is
 `<nameOverride>-metrics`).
@@ -110,9 +113,9 @@ Each reader publishes one immutable snapshot per count family. A family is
 replaced only by a complete sweep: a failed or unresolved read keeps its last
 snapshot and sets `last_attempt_failed`. The pod turns ready once every
 enabled reader has one complete sweep, and stays ready. The metrics Service
-publishes the pod before then too, so the store scrapes the sweeps that come
-before readiness, failed ones included. A replaced snapshot
-stays readable for `state.paging.keepSeconds` only when a `/v1/units` cursor
+publishes the pod before then too, so Prometheus scrapes the sweeps that
+come before readiness, failed ones included. A replaced snapshot stays
+readable for `state.paging.keepSeconds` only when a `/v1/units` cursor
 points into it; otherwise it is dropped at once, so a site nobody pages holds
 one snapshot per family.
 
@@ -162,7 +165,7 @@ unknown parameters are 400. Errors carry
 | `GET /v1/count` | Units matching a filter in the newest complete sweep, with its snapshot ID and sweep times | 400, 422 `unsupported_filter` and `field_unavailable`, 503 `no_complete_sweep` |
 | `GET /v1/units` | Units with state, reason and type fields, 100 per page (max 1,000), cursor paging pinned to one snapshot | As count, 409 `snapshot_expired` |
 | `POST /v1/units/query` | The same, with a JSON body that can ask for up to 10,000 IDs (`missingIds` lists absent ones) | As `/v1/units` |
-| `GET /v1/config` | `restSite`: the REST site checked against the device census (`match`, `mismatch` or `unknown`), with its read times. `null` while the REST inventory reader is off, which is not a site match. `nicoApi` and `rest` are `null` until their readers return | 400, 503 while the REST inventory reader is on and waits for its first site check |
+| `GET /v1/config` | `restSite`: the REST site checked against the device census (`match`, `mismatch` or `unknown`; always `unknown` with the devices reader off), with its read times. The check waits for the first device census. `null` while the REST inventory reader is off, which is not a site match. `nicoApi` and `rest` are `null` until their readers return | 400, 503 while the REST inventory reader is on and waits for its first site check |
 
 At shutdown, requests still running after 10 s are cut short with 503 and
 their connections close.
@@ -193,7 +196,6 @@ Flow, and the instance total is always 422.
 | `carbide_site_health_probe_process_start_timestamp_seconds` | gauge | none | Process start, tells restarts apart |
 | `carbide_site_health_probe_host_read_mode` | gauge | `mode` | `full` or `compact`, one-hot |
 | `carbide_site_health_probe_sweeps_total` | counter | `reader`, `family`, `result` | Sweeps that published (`complete`) or kept the last snapshot (`incomplete`) |
-| `carbide_site_health_probe_calls_total` | counter | `api`, `call`, `result` | Calls per API by `ok`, `error`, `timeout`, `pushback` |
 | `carbide_site_health_probe_unknown_states_total` | counter | `metric`, `type` | States outside the pinned tables |
 
 A count and its sweep times in one scrape always come from the same sweep. A
@@ -224,9 +226,9 @@ SELECT count(*) FROM expected_racks;
 
 Each must equal `/v1/count?type=<type>` (and `stage=ready` for ready hosts)
 when no unit changed between the sweep's `readAt` and the query. Then check
-the store: an instant query of
+Prometheus: an instant query of
 `carbide_site_health_probe_sweep_complete_timestamp_seconds{family="host"}[5m]`
-must return one sample per scrape interval, and record the store's dedup and
+must return one sample per scrape interval, and record its dedup and
 downsampling settings with the result.
 
 ## Certificate note

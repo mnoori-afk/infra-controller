@@ -530,6 +530,7 @@ tests:
     template: templates/deployment.yaml
     set:
       serviceMonitor:
+        enabled: true
         interval: 61s
       state:
         enabled: true
@@ -538,7 +539,43 @@ tests:
         existingSecret: nico-admin-cert
     asserts:
       - failedTemplate:
-          errorPattern: serviceMonitor.interval \(61s\) must be at most half of state.readers.devices.interval
+          errorPattern: serviceMonitor.interval \(61s\) must be at most half of state.readers.devices.interval \(120s\)
+
+  - it: skips the scrape interval check without a ServiceMonitor
+    template: templates/deployment.yaml
+    set:
+      serviceMonitor:
+        interval: 61s
+      state:
+        enabled: true
+        siteId: site-1
+      nicoApiClientCert:
+        existingSecret: nico-admin-cert
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: checks the default scrape interval against fast readers
+    # The failure surfaces through deployment.yaml, whose config-checksum
+    # annotation renders the configmap first.
+    template: templates/deployment.yaml
+    set:
+      serviceMonitor:
+        enabled: true
+      state:
+        enabled: true
+        siteId: site-1
+        readers:
+          devices:
+            enabled: true
+            interval: 9s
+            timeout: 600s
+        paging:
+          maxKeptSnapshots: 40
+      nicoApiClientCert:
+        existingSecret: nico-admin-cert
+    asserts:
+      - failedTemplate:
+          errorPattern: serviceMonitor.interval \(5s\) must be at most half of state.readers.devices.interval \(9s\)
 
   - it: mounts a bearer token secret as the REST token file
     templates:
@@ -587,6 +624,56 @@ tests:
           path: spec.endpoints[0].interval
           value: 7s
 
+  - it: leaves the scrape interval to Prometheus with state off
+    template: templates/service-monitor.yaml
+    set:
+      serviceMonitor:
+        enabled: true
+    asserts:
+      - notExists:
+          path: spec.endpoints[0].interval
+
+  - it: scrapes every 5s with state on
+    template: templates/service-monitor.yaml
+    set:
+      serviceMonitor:
+        enabled: true
+      state:
+        enabled: true
+        siteId: site-1
+      nicoApiClientCert:
+        existingSecret: nico-admin-cert
+    asserts:
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 5s
+
+  - it: rejects a fractional scrape interval
+    template: templates/service-monitor.yaml
+    set:
+      serviceMonitor:
+        enabled: true
+        interval: 0.5s
+    asserts:
+      - failedTemplate:
+          errorPattern: 'serviceMonitor.interval "0.5s" must be a Prometheus duration'
+
+  - it: accepts a scrape interval in milliseconds
+    template: templates/service-monitor.yaml
+    set:
+      serviceMonitor:
+        enabled: true
+        interval: 500ms
+      state:
+        enabled: true
+        siteId: site-1
+      nicoApiClientCert:
+        existingSecret: nico-admin-cert
+    asserts:
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 500ms
+
   - it: keeps the REST readers off by default
     template: templates/configmap.yaml
     set:
@@ -609,6 +696,7 @@ tests:
     template: templates/deployment.yaml
     set:
       serviceMonitor:
+        enabled: true
         interval: 1m30s
       state:
         enabled: true
@@ -623,6 +711,7 @@ tests:
     template: templates/configmap.yaml
     set:
       serviceMonitor:
+        enabled: true
         interval: 1m30s
       state:
         enabled: true
@@ -645,10 +734,15 @@ tests:
     template: templates/deployment.yaml
     set:
       serviceMonitor:
-        interval: "90"
+        enabled: true
       state:
         enabled: true
         siteId: site-1
+        readers:
+          devices:
+            enabled: true
+            interval: "90"
+            timeout: 600s
       nicoApiClientCert:
         existingSecret: nico-admin-cert
     asserts:

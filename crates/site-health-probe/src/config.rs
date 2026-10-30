@@ -401,6 +401,17 @@ impl Config {
         self.state.caps.validate(&mut errs);
         if self.state.enabled {
             self.state.validate(&mut errs);
+            // The /v1 API binds before the metrics endpoint, which would then
+            // fail at runtime on the shared port.
+            if let (Ok(metrics), Ok(api)) = (self.listen_addr(), self.api_listen_addr())
+                && metrics.port() != 0
+                && metrics.port() == api.port()
+                && (metrics.ip() == api.ip()
+                    || metrics.ip().is_unspecified()
+                    || api.ip().is_unspecified())
+            {
+                errs.push("api_listen must not share the metrics_listen port".to_string());
+            }
         }
 
         if errs.is_empty() {
@@ -1011,6 +1022,37 @@ state:
                 load_str(&yaml).err().map(|err| err.to_string())
             },
         );
+    }
+
+    #[test]
+    fn state_config_rejects_a_shared_listen_port() {
+        for (listen, why) in [
+            (
+                "metrics_listen: \":9010\"\n",
+                "both default to the wildcard",
+            ),
+            (
+                "metrics_listen: \"127.0.0.1:9010\"\n",
+                "the wildcard API covers the loopback",
+            ),
+            (
+                "metrics_listen: \"127.0.0.1:9009\"\napi_listen: \"127.0.0.1:9009\"\n",
+                "the same address",
+            ),
+        ] {
+            let err = load_str(&format!("{listen}{STATE}"))
+                .expect_err(why)
+                .to_string();
+            assert!(
+                err.contains("api_listen must not share the metrics_listen port"),
+                "{why}: {err}"
+            );
+        }
+        load_str(&format!(
+            "metrics_listen: \"127.0.0.1:9009\"\napi_listen: \"127.0.0.2:9009\"\n{STATE}"
+        ))
+        .expect("distinct addresses may share a port");
+        load_str("metrics_listen: \":9010\"\n").expect("no /v1 API with state off");
     }
 
     /// A keep window that holds more snapshots than can be counted is

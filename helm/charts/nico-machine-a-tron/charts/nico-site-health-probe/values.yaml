@@ -52,9 +52,10 @@ api:
 
 serviceMonitor:
   enabled: false
-  ## Two intervals must fit in the fastest enabled reader interval, so
-  ## every sweep lands in at least two scrapes.
-  interval: 5s
+  ## A Prometheus duration. Empty is Prometheus's global interval, or 5s
+  ## with state on. With state on, two intervals must fit in the fastest
+  ## enabled reader interval, so every sweep lands in at least two scrapes.
+  interval: ""
 
 ## nico-api client certificate (ca.crt, tls.crt, tls.key) for the state
 ## readers. Required while a nico-api reader is on: the probe's SPIFFE

@@ -22,5 +22,7 @@ spec:
   endpoints:
     - port: metrics
       path: /metrics
-      interval: {{ .Values.serviceMonitor.interval }}
+      {{- with include "nico-site-health-probe.scrapeInterval" . }}
+      interval: {{ . }}
+      {{- end }}
 {{- end }}

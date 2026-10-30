@@ -36,6 +36,32 @@ app.kubernetes.io/name: {{ include "nico-site-health-probe.name" . }}
 {{- end }}
 
 {{/*
+The ServiceMonitor's scrape interval: serviceMonitor.interval, else 5s with
+state on, else empty for Prometheus's global interval. Fails on a value the
+ServiceMonitor CRD refuses (Prometheus durations have whole numbers only).
+*/}}
+{{- define "nico-site-health-probe.scrapeInterval" -}}
+{{- $interval := toString (.Values.serviceMonitor.interval | default (ternary "5s" "" (eq (toString .Values.state.enabled) "true"))) -}}
+{{- if not (regexMatch "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$" $interval) -}}
+{{- fail (printf "serviceMonitor.interval %q must be a Prometheus duration, like 5s, 500ms or 1m30s" $interval) -}}
+{{- end -}}
+{{- $interval -}}
+{{- end }}
+
+{{/*
+A Prometheus duration ("500ms", "5s", "1m30s", "1d") in seconds.
+*/}}
+{{- define "nico-site-health-probe.promSeconds" -}}
+{{- $units := dict "ms" 0.001 "s" 1.0 "m" 60.0 "h" 3600.0 "d" 86400.0 "w" 604800.0 "y" 31536000.0 -}}
+{{- $total := 0.0 -}}
+{{- range regexFindAll "[0-9]+(ms|y|w|d|h|m|s)" . -1 -}}
+{{- $unit := regexReplaceAll "^[0-9]+" . "" -}}
+{{- $total = addf $total (mulf (regexFind "^[0-9]+" . | float64) (index $units $unit)) -}}
+{{- end -}}
+{{- $total -}}
+{{- end }}
+
+{{/*
 A duration value ("500ms", "5s", "2m", "1h", "1m30s") in seconds.
 */}}
 {{- define "nico-site-health-probe.seconds" -}}
@@ -140,12 +166,15 @@ deployer should hear about at install time.
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- $scrape := include "nico-site-health-probe.seconds" $.Values.serviceMonitor.interval | float64 -}}
+{{- if $.Values.serviceMonitor.enabled -}}
+{{- $scrapeInterval := include "nico-site-health-probe.scrapeInterval" $ -}}
+{{- $scrape := include "nico-site-health-probe.promSeconds" $scrapeInterval | float64 -}}
 {{- range $name, $reader := .readers -}}
 {{- if $reader.enabled -}}
 {{- $interval := include "nico-site-health-probe.seconds" $reader.interval | float64 -}}
 {{- if gt (mulf 2 $scrape) $interval -}}
-{{- fail (printf "serviceMonitor.interval (%s) must be at most half of state.readers.%s.interval (%s)" $.Values.serviceMonitor.interval $name $reader.interval) -}}
+{{- fail (printf "serviceMonitor.interval (%s) must be at most half of state.readers.%s.interval (%s)" $scrapeInterval $name $reader.interval) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

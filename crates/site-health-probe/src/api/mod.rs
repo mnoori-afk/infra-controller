@@ -17,8 +17,7 @@
 
 //! The `/v1` HTTP API, on its own port. Counts, units and config are
 //! answered from the snapshot store in memory; nothing here calls a site
-//! API or the metrics store. The wire types and their JSON are
-//! `carbide-site-health-probe-api`.
+//! API. The wire types and their JSON are `carbide-site-health-probe-api`.
 
 pub(crate) mod closable;
 pub(crate) mod spec;

@@ -460,7 +460,7 @@ fn build_readers(
                 provider_org: rest.provider.org.clone(),
                 site_id: state.site_id.clone(),
             },
-            census,
+            schedule.devices.enabled.then_some(census),
             Arc::clone(&sink) as _,
             process_start,
         )));
@@ -540,11 +540,18 @@ mod tests {
         );
     }
 
-    /// A wildcard bind whose port is in use fails; it never moves to IPv4.
+    /// A bind whose port is in use fails: an explicit address always, and
+    /// the wildcard without moving to IPv4.
     #[tokio::test]
     async fn api_bind_keeps_port_in_use() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let err = bind(held.local_addr().expect("address"))
+            .await
+            .expect_err("the port is in use");
+        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
+
         // An IPv6-only listener on the wildcard, which an IPv4 bind would
-        // not see. Hosts without IPv6 skip this.
+        // not see.
         let holder = || -> std::io::Result<socket2::Socket> {
             let socket = socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::STREAM, None)?;
             socket.set_only_v6(true)?;
@@ -553,8 +560,12 @@ mod tests {
             socket.listen(1)?;
             Ok(socket)
         };
-        let Ok(holder) = holder() else {
-            return;
+        let holder = match holder() {
+            Ok(holder) => holder,
+            Err(err) => {
+                eprintln!("skipping the IPv6 wildcard case, no IPv6 here: {err}");
+                return;
+            }
         };
         let port = holder
             .local_addr()
@@ -571,10 +582,11 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
     }
 
-    /// Once stopped, the readiness task cannot mark the pod ready, even from
-    /// the middle of a poll.
+    /// `stop_task` returns only once its task no longer runs, even when the
+    /// task is in the middle of a poll: run() relies on it so a stopped
+    /// readiness task cannot mark the pod ready after shutdown starts.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stopped_readiness_stays_not_ready() {
+    async fn stop_task_waits_out_a_running_poll() {
         let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (polling, polled) = std::sync::mpsc::channel();
         let (release, released) = std::sync::mpsc::channel::<()>();
