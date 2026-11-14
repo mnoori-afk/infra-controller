@@ -67,7 +67,17 @@ impl UnitsSpec {
             want.as_ref()
                 .is_none_or(|w| host.is_some_and(|h| normalize(h) == *w))
         };
-        unit.unit_type == f.unit_type
+        (!metrics::firmware_filter(f)
+            || (host
+                .is_some_and(|h| f.vendor.as_deref() == Some(metrics::vendor_label(h).as_str()))
+                && f.firmware_phase.is_none_or(|phase| {
+                    Some(phase)
+                        == f.firmware_component
+                            .map(|c| metrics::firmware_phase(unit, c))
+                })
+                && f.firmware_ready
+                    .is_none_or(|ready| metrics::firmware_ready(unit) == ready)))
+            && unit.unit_type == f.unit_type
             && f.source.is_none_or(|s| s == unit.source)
             && match f.stage {
                 None | Some(Stage::Registered) => true,
